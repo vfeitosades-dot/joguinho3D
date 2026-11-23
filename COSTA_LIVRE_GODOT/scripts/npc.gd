@@ -37,27 +37,47 @@ func _mesh(parent:Node3D,s:Vector3,p:Vector3,c:Color) -> void:
  n.material_override=_mat(c)
  parent.add_child(n)
 
+func _rounded(parent:Node3D,size_3d:Vector3,at:Vector3,color:Color) -> void:
+ var visual:=MeshInstance3D.new()
+ var sphere:=SphereMesh.new()
+ sphere.radius=.5
+ sphere.height=1.0
+ sphere.radial_segments=10
+ sphere.rings=5
+ visual.mesh=sphere
+ visual.scale=size_3d
+ visual.position=at
+ visual.material_override=_mat(color)
+ parent.add_child(visual)
+
 func _create_body() -> void:
- var shirts=[Color("48677a"),Color("c78d54"),Color("58745d"),Color("ad6465"),Color("e3d4c2"),Color("383d4d")]
+ var shirts=[Color("48677a"),Color("c78d54"),Color("58745d"),Color("ad6465"),Color("e3d4c2"),Color("383d4d"),Color("c49c64")]
  var skins=[Color("c18f69"),Color("83583d"),Color("e0b18b"),Color("a77b5e")]
+ var pants=[Color("343944"),Color("333b39"),Color("615143"),Color("323b51")]
  var clothes=shirts[human_id%shirts.size()]
  var skin=skins[human_id%skins.size()]
- _mesh(self,Vector3(.64,.90,.33),Vector3(0,1.44,0),clothes)
- _mesh(self,Vector3(.42,.43,.35),Vector3(0,2.1,0),skin)
- _mesh(self,Vector3(.47,.11,.38),Vector3(0,2.37,-.005),Color("22211d"))
+ var pant=pants[human_id%pants.size()]
+ var hair=Color("292820") if human_id%5 != 0 else Color("6c5035")
+ _rounded(self,Vector3(.67,.85,.4),Vector3(0,1.48,0),clothes)
+ _rounded(self,Vector3(.56,.26,.34),Vector3(0,1.09,0),pant)
+ _rounded(self,Vector3(.44,.47,.4),Vector3(0,2.25,0),skin)
+ _rounded(self,Vector3(.46,.19,.42),Vector3(0,2.49,.03),hair)
+ _rounded(self,Vector3(.15,.17,.11),Vector3(0,2.19,-.22),skin)
  for side in [-1,1]:
-  var arm=Node3D.new()
-  arm.position=Vector3(side*.43,1.81,0)
+  var fx=float(side)
+  _rounded(self,Vector3(.07,.07,.048),Vector3(fx*.11,2.29,-.205),Color("34312b"))
+  var arm:=Node3D.new()
+  arm.position=Vector3(fx*.44,1.82,0)
   add_child(arm)
-  _mesh(arm,Vector3(.20,.72,.25),Vector3(0,-.34,0),clothes)
-  _mesh(arm,Vector3(.2,.17,.2),Vector3(0,-.76,0),skin)
+  _rounded(arm,Vector3(.21,.73,.24),Vector3(0,-.34,0),clothes)
+  _rounded(arm,Vector3(.19,.19,.20),Vector3(0,-.77,0),skin)
   if side == -1: left_arm=arm
   else: right_arm=arm
-  var leg=Node3D.new()
-  leg.position=Vector3(side*.17,.99,0)
+  var leg:=Node3D.new()
+  leg.position=Vector3(fx*.17,.99,0)
   add_child(leg)
-  _mesh(leg,Vector3(.27,.82,.31),Vector3(0,-.40,0),Color("36383a"))
-  _mesh(leg,Vector3(.3,.14,.43),Vector3(0,-.83,-.06),Color("33302d"))
+  _rounded(leg,Vector3(.27,.84,.30),Vector3(0,-.42,0),pant)
+  _rounded(leg,Vector3(.30,.16,.44),Vector3(0,-.84,-.06),Color("393630"))
   if side == -1: left_leg=leg
   else: right_leg=leg
 
@@ -81,6 +101,7 @@ func speak() -> String:
  return phrases[(human_id+rng.randi_range(0,3))%phrases.size()]
 
 func _process(delta:float) -> void:
+ if nearby_player!=null and nearby_player.global_position.distance_to(global_position)>150.0:return
  if talking_time>0:
   talking_time-=delta
   if talking_time<=0: _choose_goal()
