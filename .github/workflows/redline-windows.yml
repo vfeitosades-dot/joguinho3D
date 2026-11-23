@@ -1,0 +1,34 @@
+name: REDLINE - Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'SEDAN_REDLINE_GODOT/**'
+      - '.github/workflows/redline-windows.yml'
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Godot and templates
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.5.2
+          use-dotnet: false
+          include-templates: true
+      - name: Import assets and validate scripts
+        run: godot --headless --path SEDAN_REDLINE_GODOT --editor --quit
+      - name: Export REDLINE Windows 64-bit
+        run: |
+          mkdir -p SEDAN_REDLINE_GODOT/build
+          godot --headless --path SEDAN_REDLINE_GODOT --export-release "Windows Desktop" build/REDLINE.exe
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: REDLINE-Windows
+          path: SEDAN_REDLINE_GODOT/build/REDLINE.exe
+          if-no-files-found: error
