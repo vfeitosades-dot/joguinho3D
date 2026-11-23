@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export-windows:
@@ -45,3 +45,19 @@ jobs:
           path: build/windows/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publicar EXE em Release com link direto
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: baseplate-godot-latest
+          target_commitish: main
+          name: "Baseplate Godot - Windows 64 bits"
+          body: |
+            Executável Windows 64 bits do Baseplate 3D adaptado para a Godot.
+            Download direto: BaseplateGodot.exe
+            Controles: WASD/setas, mouse, espaço, Esc.
+            Build gerado automaticamente pelo GitHub Actions.
+          files: build/windows/BaseplateGodot.exe
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: false
