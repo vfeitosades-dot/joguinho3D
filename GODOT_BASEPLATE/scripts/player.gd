@@ -1,6 +1,7 @@
 extends CharacterBody3D
 ## Personagem procedural em formato humanoide, sem assets externos.
 
+const MANNY_PATH: String = "res://assets/manny/Manny.glb"
 const WALK_SPEED: float = 5.0
 const RUN_SPEED: float = 7.5
 const JUMP_VELOCITY: float = 7.4
@@ -12,6 +13,8 @@ var _right_arm: MeshInstance3D
 var _left_leg: MeshInstance3D
 var _right_leg: MeshInstance3D
 var _walk_phase: float = 0.0
+var _manny_animations: AnimationPlayer = null
+var _manny_loaded: bool = false
 
 func _ready() -> void:
 	_setup_controls()
@@ -55,6 +58,10 @@ func _create_humanoid() -> void:
 	_body_visual.name = "Modelo_Humanoide"
 	add_child(_body_visual)
 
+	# Prioriza apenas o modelo Manny original fornecido legalmente pelo usuario.
+	if _try_load_manny():
+		return
+
 	var skin := _material(Color(0.95, 0.73, 0.54))
 	var shirt := _material(Color(0.10, 0.39, 0.79))
 	var pants := _material(Color(0.15, 0.19, 0.28))
@@ -71,6 +78,64 @@ func _create_humanoid() -> void:
 	_right_arm = _box("Braco_D", Vector3(0.43, 1.31, 0.0), Vector3(0.22, 0.64, 0.27), shirt)
 	_left_leg = _box("Perna_E", Vector3(-0.16, 0.55, 0.0), Vector3(0.25, 0.90, 0.29), pants)
 	_right_leg = _box("Perna_D", Vector3(0.16, 0.55, 0.0), Vector3(0.25, 0.90, 0.29), pants)
+
+func _try_load_manny() -> bool:
+	if not ResourceLoader.exists(MANNY_PATH):
+		return false
+
+	var file: Resource = load(MANNY_PATH)
+	if not (file is PackedScene):
+		push_warning("Manny.glb nao pode ser importado como cena Godot.")
+		return false
+
+	var source: Node = (file as PackedScene).instantiate()
+	if not (source is Node3D):
+		push_warning("Manny.glb nao contem um Node3D.")
+		source.free()
+		return false
+
+	var player: AnimationPlayer = _find_animation_player(source)
+	if player == null or player.get_animation_list().is_empty():
+		push_warning("Manny.glb precisa ter animacoes embutidas: Idle, Walk, Run e Jump.")
+		source.free()
+		return false
+
+	_body_visual.add_child(source)
+	_manny_animations = player
+	_manny_loaded = true
+	_play_manny_animation("idle")
+	return true
+
+func _find_animation_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node as AnimationPlayer
+	for child: Node in node.get_children():
+		var found: AnimationPlayer = _find_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+func _play_manny_animation(state: String) -> void:
+	if _manny_animations == null:
+		return
+
+	var candidates: Array[String] = [state]
+	match state:
+		"run":
+			candidates.append_array(["sprint", "walk", "idle"])
+		"walk":
+			candidates.append_array(["locomotion", "run", "idle"])
+		"jump":
+			candidates.append_array(["fall", "idle"])
+		"fall":
+			candidates.append_array(["jump", "idle"])
+
+	for search_term: String in candidates:
+		for clip: StringName in _manny_animations.get_animation_list():
+			if String(clip).to_lower().contains(search_term):
+				if _manny_animations.current_animation != clip:
+					_manny_animations.play(clip, 0.15)
+				return
 
 func _material(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -138,6 +203,15 @@ func _physics_process(delta: float) -> void:
 			atan2(-move_direction.x, -move_direction.z), minf(delta * 11.0, 1.0))
 
 	var moving: bool = move_direction.length_squared() > 0.01 and is_on_floor()
+	if _manny_loaded:
+		var state: String = "idle"
+		if not is_on_floor():
+			state = "jump" if velocity.y > 0.0 else "fall"
+		elif moving:
+			state = "run" if speed == RUN_SPEED else "walk"
+		_play_manny_animation(state)
+		return
+
 	if moving:
 		_walk_phase += delta * (12.0 if speed == RUN_SPEED else 8.5)
 	var sway: float = sin(_walk_phase) * 0.35 if moving else 0.0
