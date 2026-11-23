@@ -1,0 +1,47 @@
+name: Godot Baseplate - Windows EXE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GODOT_BASEPLATE/**'
+      - '.github/workflows/godot-baseplate-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-windows:
+    name: Compilar BaseplateGodot.exe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Godot 4.4.1 e templates Windows
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.4.1
+          use-dotnet: false
+          include-templates: true
+
+      - name: Importar projeto e validar scripts
+        run: |
+          godot --version
+          godot --headless --path GODOT_BASEPLATE --editor --quit
+
+      - name: Exportar executavel Windows 64 bits
+        run: |
+          mkdir -p build/windows
+          godot --headless --path GODOT_BASEPLATE --export-release "Windows Desktop" "$GITHUB_WORKSPACE/build/windows/BaseplateGodot.exe"
+          test -s build/windows/BaseplateGodot.exe
+
+      - name: Publicar EXE para baixar
+        uses: actions/upload-artifact@v4
+        with:
+          name: Godot-Baseplate-Windows-EXE
+          path: build/windows/
+          if-no-files-found: error
+          retention-days: 30
