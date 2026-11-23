@@ -2,7 +2,7 @@ name: Godot Baseplate - Windows EXE
 
 on:
   push:
-    branches: [main]
+    branches: [main, manny-import-ready]
     paths:
       - 'GODOT_BASEPLATE/**'
       - '.github/workflows/godot-baseplate-windows.yml'
@@ -47,6 +47,7 @@ jobs:
           retention-days: 30
 
       - name: Publicar EXE em Release com link direto
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: baseplate-godot-latest
