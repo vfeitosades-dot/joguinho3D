@@ -5,10 +5,11 @@ extends Camera3D
 
 var yaw: float = 0.0
 var pitch: float = 0.36
-var distance: float = 6.1
+var distance: float = 4.0
 
 func _ready() -> void:
 	current = true
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	fov = 70.0
 	near = 0.1
 	far = 180.0
@@ -17,7 +18,7 @@ func _ready() -> void:
 		look_at(target.global_position + Vector3.UP * 1.25, Vector3.UP)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+	if event is InputEventMouseMotion:
 		yaw += event.relative.x * 0.005
 		pitch = clampf(pitch - event.relative.y * 0.005, -0.14, 1.1)
 
