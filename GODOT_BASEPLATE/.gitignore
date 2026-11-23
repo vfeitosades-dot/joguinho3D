@@ -2,3 +2,7 @@
 *.tmp
 build/
 *.translation
+
+# Nao versionar assets comerciais ou cuja redistribuicao nao foi autorizada.
+assets/manny/*
+!assets/manny/README.md
