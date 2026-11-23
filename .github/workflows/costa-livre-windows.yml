@@ -1,0 +1,51 @@
+name: COSTA LIVRE - Build Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'COSTA_LIVRE_GODOT/**'
+      - '.github/workflows/costa-livre-windows.yml'
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install Godot editor and Windows export templates
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.5.2
+          use-dotnet: false
+          include-templates: true
+      - name: Download actual CC0 GLB assets from Kenney mirror
+        run: python3 COSTA_LIVRE_GODOT/tools/fetch_assets.py
+      - name: Import 3D assets and validate scripts
+        run: godot --headless --path COSTA_LIVRE_GODOT --editor --quit
+      - name: Smoke test start up
+        run: godot --headless --path COSTA_LIVRE_GODOT --quit-after 7
+      - name: Export Windows EXE (embedded PCK)
+        run: |
+          mkdir -p COSTA_LIVRE_GODOT/build
+          godot --headless --path COSTA_LIVRE_GODOT --export-release 'Windows Desktop' build/COSTA_LIVRE.exe
+          test -s COSTA_LIVRE_GODOT/build/COSTA_LIVRE.exe
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: COSTA-LIVRE-Windows
+          path: COSTA_LIVRE_GODOT/build/COSTA_LIVRE.exe
+          if-no-files-found: error
+      - name: Publish Windows executable as GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: costa-livre-v0.1.0
+          name: COSTA LIVRE Alpha 0.1 - Windows
+          body: |
+            Prototipo de mundo aberto original, com cidade, praia, calçadao, carros, trafego e pedestres de IA simples.
+            Exe unico para Windows x64, Godot 4.5.2 Compatibility, resolução 960x540.
+            Hardware fraco: desempenho depende dos drivers Intel e da quantidade de objetos visiveis; não há FPS garantido.
+            Licencas de modelos CC0: https://kenney.nl/assets
+          files: COSTA_LIVRE_GODOT/build/COSTA_LIVRE.exe
+          fail_on_unmatched_files: true
