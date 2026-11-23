@@ -10,7 +10,7 @@ jobs:
   build-windows:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,9 +26,20 @@ jobs:
         run: |
           mkdir -p SEDAN_REDLINE_GODOT/build
           godot --headless --path SEDAN_REDLINE_GODOT --export-release "Windows Desktop" build/REDLINE.exe
-      - name: Upload executable
+          test -s SEDAN_REDLINE_GODOT/build/REDLINE.exe
+      - name: Upload executable as GitHub Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: REDLINE-Windows
           path: SEDAN_REDLINE_GODOT/build/REDLINE.exe
           if-no-files-found: error
+      - name: Publish EXE to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: redline-v1.0.0
+          name: REDLINE VORTEX S4 - Windows
+          body: |
+            Download REDLINE.exe para jogar no Windows 64 bits.
+            Jogo de demonstração 3D Godot, com sedã low-poly, baseplate, reflexos, vidro, animações e minijogo fictício de partida.
+          files: SEDAN_REDLINE_GODOT/build/REDLINE.exe
+          fail_on_unmatched_files: true
