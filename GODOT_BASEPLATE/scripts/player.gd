@@ -1,7 +1,7 @@
 extends CharacterBody3D
 ## Personagem procedural em formato humanoide, sem assets externos.
 
-const WALK_SPEED: float = 4.8
+const WALK_SPEED: float = 5.0
 const RUN_SPEED: float = 7.5
 const JUMP_VELOCITY: float = 7.4
 const GRAVITY: float = 22.0
@@ -21,9 +21,13 @@ func _ready() -> void:
 
 func _setup_controls() -> void:
 	_bind_key("move_forward", KEY_W)
+	_bind_key("move_forward", KEY_UP)
 	_bind_key("move_backward", KEY_S)
+	_bind_key("move_backward", KEY_DOWN)
 	_bind_key("move_left", KEY_A)
+	_bind_key("move_left", KEY_LEFT)
 	_bind_key("move_right", KEY_D)
+	_bind_key("move_right", KEY_RIGHT)
 	_bind_key("jump", KEY_SPACE)
 	_bind_key("sprint", KEY_SHIFT)
 	_bind_key("restart", KEY_R)
@@ -141,3 +145,8 @@ func _physics_process(delta: float) -> void:
 	_right_leg.rotation.x = lerpf(_right_leg.rotation.x, -sway, delta * 13.0)
 	_left_arm.rotation.x = lerpf(_left_arm.rotation.x, -sway * 0.75, delta * 13.0)
 	_right_arm.rotation.x = lerpf(_right_arm.rotation.x, sway * 0.75, delta * 13.0)
+
+# O projeto C++ original da Unreal permite Esc para sair.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		get_tree().quit()
