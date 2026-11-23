@@ -70,7 +70,7 @@ func _create_hint() -> void:
 	add_child(ui)
 	var hint := Label.new()
 	hint.name = "Controles"
-	hint.text = "WASD: andar  |  Espaço: pular  |  Shift: correr  |  Botão direito do mouse: câmera  |  R: reiniciar"
+	hint.text = "WASD / setas: andar  |  Mouse: câmera  |  Espaço: pular  |  Esc: sair"
 	hint.position = Vector2(16, 14)
 	hint.add_theme_font_size_override("font_size", 15)
 	hint.add_theme_color_override("font_color", Color.WHITE)
