@@ -40,10 +40,10 @@ jobs:
       - name: Publish Windows executable as GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: costa-livre-v0.1.0
-          name: COSTA LIVRE Alpha 0.1 - Windows
+          tag_name: costa-livre-v0.2.0
+          name: COSTA LIVRE Alpha 0.2 - Windows
           body: |
-            Prototipo de mundo aberto original, com cidade, praia, calçadao, carros, trafego e pedestres de IA simples.
+            Prototipo original 0.2, cidade, praia, carros, pedestres, nova interface, minimapa, missões e creditos com save.
             Exe unico para Windows x64, Godot 4.5.2 Compatibility, resolução 960x540.
             Hardware fraco: desempenho depende dos drivers Intel e da quantidade de objetos visiveis; não há FPS garantido.
             Licencas de modelos CC0: https://kenney.nl/assets

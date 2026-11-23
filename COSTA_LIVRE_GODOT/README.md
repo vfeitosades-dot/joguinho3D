@@ -1,36 +1,25 @@
-# COSTA LIVRE — Godot 4.5.2 — Alpha 0.1
+# COSTA LIVRE 0.2 — Jogo original de cidade e praia
 
-Pequeno jogo de exploração urbana 3D original, estilo *sandbox* costeiro. Não é GTA 5 e não é uma reprodução integral do jogo. Inclui cidade modular com prédios/comércio/casas, zona de praia e mar, calçadão, píer, carros dirigíveis e tráfego, pedestres com IA por estados, câmera de terceira pessoa e HUD.
+Projeto Godot 4.5.2 3D, Windows 64 bits. Original e inspirado no genero sandbox: **nao e GTA 5**, nem utiliza personagens, audio, texturas ou mapas protegidos do jogo.
 
-**Meta de hardware:** i5 3ª geração, 8 GB RAM, Intel HD 2500/4000; Godot renderizador Compatibility; janela 960x540, sem pós-processamento caro, cidade com chunks carregados por proximidade. O FPS não foi medido nesse PC e não é garantido.
+## Conteudo
+- Cidade modular costeira: centro, bairros, avenida e praia, predios comerciais, casas, rua, praca, calcadao e pier.
+- Visual 3D Kenney CC0 com pontos de interesse artesanais (quiosque Brisa Cafe, posto de observacao, placas, bancos, iluminacao e letreiros).
+- Personagem 3D em terceira pessoa, 7 tipos de carros dirigiveis, movimento de pedestres, dialogos e trafego com pontos de percurso.
+- UI nova com menu, pausa, configuracao de qualidade, mapa ampliado, minimapa, velocimetro, avisos e objetivos.
+- Campanha curta de exploracao em 5 etapas repetiveis, creditos, salvamento automatico no disco (user://costa_livre_save.json).
+- Godot Compatibility para Intel HD 2500/4000. 800x450, 960x540 e 1280x720 (modo detalhado). Sem garantia de FPS.
 
 ## Controles
+WASD/setas: caminhar ou dirigir. Shift: correr/acelerar. Espaco: pular/frear. Mouse: camera. E: entrar/sair de carro. F: conversar. M: abrir mapa. Esc: pausar. H: dicas.
 
-| Tecla | Função |
-| --- | --- |
-| WASD ou setas | andar / dirigir |
-| Shift | correr / acelerar |
-| Espaço | pular / freio de mão |
-| E | entrar e sair do carro próximo |
-| F | conversar com pedestre próximo |
-| Mouse | câmera livre |
-| Roda | zoom |
-| Esc | liberar/capturar cursor |
-| H | mostrar ou ocultar dicas |
+## Uso local
+1. Abra project.godot no Godot 4.5.2.
+2. Antes, execute python tools/fetch_assets.py (baixa arquivos GLB Kenney CC0 de espelho publico usado pelo CI).
+3. Aguarde a importacao de arquivos e pressione F5.
+4. Para compilar no Windows via GitHub Actions, veja .github/workflows/costa-livre-windows.yml.
 
-## Construir e rodar
+## Limites honestos
+**Versao 0.2 prototipo:** nao contem historia longa, multiplayer, audio gravado, interiores completos, carros com fisica de simulacao nem NPCs com IA generativa. Modelos reutilizados sao de estilo low-poly e nao equivalem a um AAA; modelos muito realistas seriam excessivamente caros para a placa integrada. A compilacao valida editor e abertura headless, mas o executavel deve ser testado em Windows com a sua GPU.
 
-1. Instale Godot 4.5.2.
-2. Rode `python tools/fetch_assets.py` para obter os modelos CC0 GLB em `assets/kenney/`; se estiver offline, os substitutos procedurais ainda permitem que o jogo abra.
-3. Abra `project.godot` no Godot, aguarde importação dos GLBs e inicie com F6/F5.
-4. O workflow `.github/workflows/costa-livre-windows.yml` compila `COSTA_LIVRE.exe` para Windows e envia a um Release no GitHub quando os arquivos `COSTA_LIVRE_GODOT/` forem alterados.
-
-## Limites desta versão
-
-- Protótipo, não mundo AAA. O mapa cobre ~650m, mas renderiza prédios locais por setores.
-- NPCs usam rotinas, pontos de passagem, pausas e detecção simples de veículos, não IA conversacional autônoma.
-- Carros usam física arcade simples; não há tráfego inteligente de cidade inteira, interiores jogáveis, missões complexas, dublagem ou áudio.
-- Sem violência, sem reprodução de conteúdo de GTA 5.
-- **A versão Windows deve ser testada em um computador real após o build**. A execução e desempenho na Intel HD não puderam ser validados neste ambiente.
-
-Modelos e licenças: [ASSETS_LICENSES.md](ASSETS_LICENSES.md).
+Ver ASSETS_LICENSES.md.

@@ -3,6 +3,9 @@ extends Node3D
 const PlayerScript = preload("res://scripts/player.gd")
 const CarScript = preload("res://scripts/car.gd")
 const NpcScript = preload("res://scripts/npc.gd")
+const UIScript = preload("res://scripts/game_ui.gd")
+const MissionScript = preload("res://scripts/missions.gd")
+const CityDetailsScript = preload("res://scripts/city_details.gd")
 
 const STREET_STEP := 70.0
 const MAP_END := 350.0
@@ -34,6 +37,10 @@ var camera_target := Vector3.ZERO
 var seed_base := 12027
 var region_name := "CENTRO"
 var materials: Dictionary = {}
+var ui
+var missions
+var city_props
+var chunk_radius := 1
 
 func _ready() -> void:
  randomize()
@@ -47,9 +54,14 @@ func _ready() -> void:
  _spawn_player()
  _spawn_vehicles()
  _spawn_people()
+ city_props=CityDetailsScript.new()
+ add_child(city_props)
+ city_props.construct(self)
+ missions=MissionScript.new()
+ missions.game=self
+ add_child(missions)
  _make_hud()
  _stream_blocks(true)
- Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
 
 func _setup_mats() -> void:
  for key in ["park","road","roadline","sidewalk","sand","sea","grass","concrete","white","wood","glass","shadow","black"]:
@@ -281,8 +293,8 @@ func _stream_blocks(force:bool=false) -> void:
  var ix=int(floor((center.x+35.0)/STREET_STEP))
  var iz=int(floor((center.z+35.0)/STREET_STEP))
  var needed:Dictionary={}
- for x in range(ix-2,ix+3):
-  for z in range(iz-2,iz+3):
+ for x in range(ix-chunk_radius,ix+chunk_radius+1):
+  for z in range(iz-chunk_radius,iz+chunk_radius+1):
    if x < -4 or x > 3 or z < -4 or z > 3:continue
    var key="%d_%d"%[x,z]
    needed[key]=true
@@ -332,6 +344,8 @@ func _build_block(ix:int,iz:int,parent:Node3D) -> void:
    if not _asset("city-kit-suburban",model2,building,Vector3.ZERO,11.0):
     _fallback_building(building,width-2,depth-3,height*.55,rng)
   _static_box(building,Vector3(width-3,height*.8,depth-3),Vector3(0,height*.4,0))
+  if city_props!=null:
+   city_props.decorate_lot(parent,Vector3(lot_x,.2,lot_z),width,depth,commerce,absi(ix*47+iz*23+j))
  if rng.randf()<.72:
   var tree_name="tree-large" if rng.randf()<.45 else "tree-small"
   if not _asset("city-kit-suburban",tree_name,parent,Vector3(x-25,.13,z+21),5.5):
@@ -354,18 +368,9 @@ func _fallback_building(parent:Node3D,w:float,d:float,h:float,rng:RandomNumberGe
     _box(parent,Vector3(.08,1.95,2.3),Vector3(zz*(w*.5+.055),window_h,float(xx)*d*.28),"glass")
 
 func _make_hud() -> void:
- var canvas:=CanvasLayer.new()
- add_child(canvas)
- var titlebox:=ColorRect.new()
- titlebox.color=Color(0.035,0.085,0.12,.82)
- titlebox.position=Vector2(15,14)
- titlebox.size=Vector2(400,81)
- canvas.add_child(titlebox)
- hud_title=_label(canvas,"C O S T A   L I V R E",Vector2(27,19),25,Color("f4e9d2"))
- hud_area=_label(canvas,"CENTRO  |  SOL E BRISA  |  ILHA DOURADA",Vector2(29,58),13,Color("abdae7"))
- hud_fps=_label(canvas,"",Vector2(29,80),12,Color("e6e6e6"))
- hud_hint=_label(canvas,"WASD ANDAR  |  SHIFT CORRER  |  E CARRO  |  F CONVERSAR\nMOUSE CAMERA  |  RODA ZOOM  |  ESC LIBERAR  |  H DICAS",Vector2(23,471),13,Color("f3f5f1"))
- hud_chat=_label(canvas,"",Vector2(25,416),17,Color("ffe7aa"))
+ ui=UIScript.new()
+ ui.game=self
+ add_child(ui)
 
 func _label(parent:Node,text_value:String,pos:Vector2,font_size:int,color:Color) -> Label:
  var label:=Label.new()
@@ -380,26 +385,24 @@ func _label(parent:Node,text_value:String,pos:Vector2,font_size:int,color:Color)
  return label
 
 func _input(event:InputEvent) -> void:
+ if ui!=null and ui.blocks_game_input(): return
  if event is InputEventMouseMotion and Input.mouse_mode==Input.MOUSE_MODE_CAPTURED:
   mouse_yaw-=event.relative.x*.004
   mouse_pitch=clampf(mouse_pitch+event.relative.y*.003,-.08,.82)
  elif event is InputEventMouseButton:
-  if event.button_index==MOUSE_BUTTON_LEFT and event.pressed:
-   Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
-  if event.button_index==MOUSE_BUTTON_WHEEL_UP and event.pressed:
-   camera_dist=maxf(3.5,camera_dist-.7)
-  if event.button_index==MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
-   camera_dist=minf(15.0,camera_dist+.7)
+  if event.button_index==MOUSE_BUTTON_LEFT and event.pressed: Input.mouse_mode=Input.MOUSE_MODE_CAPTURED
+  if event.button_index==MOUSE_BUTTON_WHEEL_UP and event.pressed: camera_dist=maxf(3.5,camera_dist-.7)
+  if event.button_index==MOUSE_BUTTON_WHEEL_DOWN and event.pressed: camera_dist=minf(15.0,camera_dist+.7)
  if event is InputEventKey and event.pressed and not event.echo:
   if event.keycode==KEY_ESCAPE:
-   Input.mouse_mode=Input.MOUSE_MODE_VISIBLE if Input.mouse_mode==Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
-  elif event.keycode==KEY_E:
-   _toggle_car()
-  elif event.keycode==KEY_F:
-   _talk_to_citizen()
-  elif event.keycode==KEY_H:
-   debug_hints=not debug_hints
-   hud_hint.visible=debug_hints
+   ui.toggle_pause()
+   get_viewport().set_input_as_handled()
+  elif event.keycode==KEY_M:
+   ui.toggle_map()
+   get_viewport().set_input_as_handled()
+  elif event.keycode==KEY_E: _toggle_car()
+  elif event.keycode==KEY_F: _talk_to_citizen()
+  elif event.keycode==KEY_H: ui.show_help=not ui.show_help
 
 func _toggle_car() -> void:
  if player_car!=null:
@@ -423,6 +426,7 @@ func _toggle_car() -> void:
   player_car=nearest
   player_car.is_driven=true
   player.set_in_vehicle(true)
+  if missions!=null: missions.on_enter_car()
   _message("DIRIGINDO  |  WASD mover  |  Espaco frear  |  E sair")
  else:
   _message("Aproxime-se de um carro estacionado e aperte E")
@@ -439,12 +443,12 @@ func _talk_to_citizen() -> void:
    chosen=p
  if chosen!=null:
   _message("MORADOR:  "+chosen.speak())
+  if missions!=null: missions.on_talk()
  else:
   _message("Aproxime-se de um pedestre para conversar")
 
 func _message(msg:String) -> void:
- hud_chat.text=msg
- chat_timer=5.5
+ if ui!=null: ui.notify(msg)
 
 func _process(delta:float) -> void:
  elapsed+=delta
@@ -469,10 +473,7 @@ func _process(delta:float) -> void:
   region_name="BAIRROS"
  else:
   region_name="CENTRO"
- hud_area.text="%s  |  CIDADE COSTEIRA  |  ALPHA 0.1"%region_name
- hud_fps.text="FPS %d   |   SETORES %d   |   MORADORES %d   |   CARROS %d"%[int(Engine.get_frames_per_second()),active_chunks.size(),people.size(),cars.size()]
- if chat_timer>0:
-  chat_timer-=delta
-  if chat_timer<=0:hud_chat.text=""
+ if ui!=null:
+  ui.update_hud(region_name,int(Engine.get_frames_per_second()),active_chunks.size(),player_car.speed if player_car!=null else 0.0)
  if water!=null:
   water.position.y=-.18+sin(elapsed*.7)*.012
