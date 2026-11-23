@@ -55,3 +55,9 @@ O workflow `.github/workflows/redline-windows.yml` do projeto pode gerar um arte
 A geometria e os sons são construídos ao iniciar o jogo por `scripts/car_factory.gd`. A lógica do jogo e as animações são controladas por `scripts/game.gd`. A interface do minijogo ficcional usa `scripts/hotwire_ui.gd`.
 
 Sem modelos externos, sem pacotes pagos e sem personagens ou mapas adicionais. Projeto demonstrativo; física automotiva simplificada, sem promessa de fidelidade fotográfica ou equivalência mecânica a um jogo AAA.
+
+
+## v1.1 - Modelos CC0 da internet + Modo leve
+O sedã padrão agora é um GLB **Kenney Car Kit** com rodas separadas, menor custo de desenho. Pressione **V** para alternar para o carro Vortex S4 detalhado e animado (portas, capô, porta-malas). A troca inicial pode causar pequena pausa para construir as peças.
+
+Um humano Quaternius CC0, com camiseta, calça, botas e cabelo, foi incorporado num GLB com 22 animações. Fora do carro, use WASD para andar, Shift para correr, Espaço para pular, F para sentar, G para acenar, E perto do carro para entrar. Modo leve: 1152 x 648, sombras dinâmicas e MSAA desligados. No carro leve, não há portas/capô/porta-malas separados; pressione V para usar suas animações.

@@ -8,8 +8,8 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 config/description="Sedan esportivo de garagem, baseplate, materiais PBR e simulacao cinematografica."
 
 [display]
-window/size/viewport_width=1600
-window/size/viewport_height=900
+window/size/viewport_width=1152
+window/size/viewport_height=648
 window/stretch/mode="canvas_items"
 window/handheld/orientation=1
 
@@ -18,8 +18,8 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
 textures/canvas_textures/default_texture_filter=1
-anti_aliasing/quality/msaa_3d=2
-textures/default_filters/anisotropic_filtering_level=2
+anti_aliasing/quality/msaa_3d=0
+textures/default_filters/anisotropic_filtering_level=1
 
 [physics]
 3d/default_gravity=9.8
