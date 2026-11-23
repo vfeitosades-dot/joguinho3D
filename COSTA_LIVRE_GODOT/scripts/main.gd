@@ -249,7 +249,7 @@ func _spawn_vehicles() -> void:
   c.driver=player
   add_child(c)
   cars.append(c)
- var loop=[Vector3(140,.85,-140),Vector3(140,.85,140),Vector3(-140,.85,140),Vector3(-140,.85,-140)]
+ var loop: Array[Vector3]=[Vector3(140,.85,-140),Vector3(140,.85,140),Vector3(-140,.85,140),Vector3(-140,.85,-140)]
  for i in range(5):
   var c:=CarScript.new()
   c.name="Transito_%02d"%i
