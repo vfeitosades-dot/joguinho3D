@@ -1,0 +1,75 @@
+name: Manny Baseplate - Windows EXE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MANNY_BUILD/**'
+      - '.github/workflows/manny-baseplate-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manny-baseplate-release
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar modelo e criar animacoes
+        run: |
+          python -m pip install numpy scipy
+          python MANNY_BUILD/prepare.py
+      - name: Instalar Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.4.1
+          use-dotnet: false
+          include-templates: true
+      - name: Validar carregamento e cinco animacoes
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --path GODOT_BASEPLATE --editor --quit
+          godot --headless --path GODOT_BASEPLATE --quit-after 120 2>&1 | tee /tmp/manny-test.log
+          grep -F 'MANNY_READY: 5 clips' /tmp/manny-test.log
+      - name: Compilar para Windows
+        run: |
+          mkdir -p build/manny
+          godot --headless --path GODOT_BASEPLATE --export-release "Windows Desktop" "$GITHUB_WORKSPACE/build/manny/Baseplate_Manny.exe"
+          test -s build/manny/Baseplate_Manny.exe
+          cp GODOT_BASEPLATE/CREDITS.txt build/manny/CREDITS.txt
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: Baseplate-Manny-Windows
+          path: build/manny/
+          if-no-files-found: error
+      - name: Publicar download direto
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: baseplate-manny-v1
+          name: "Baseplate Manny - Windows 64 bits"
+          body: |
+            Baseplate Godot com o modelo enviado, verificado por SHA-256.
+            Cinco animacoes proprias: Idle, Walk, Run, Jump e Fall. Nao sao animacoes oficiais da Unreal.
+            Modelo UE5 Male Mannequin - Manny - Web Ready, SketchPunk, licenca declarada CC BY 4.0.
+            Fonte: https://sketchfab.com/3d-models/ue5-male-mannequin-manny-web-ready-9fcaadd206f449c2ab446d84350df370
+            https://creativecommons.org/licenses/by/4.0/
+            Design Manny e Unreal Engine: Epic Games.
+            Alteracoes: animacoes e ajuste de escala/orientacao.
+            Veja CREDITS.txt.
+          files: |
+            build/manny/Baseplate_Manny.exe
+            build/manny/CREDITS.txt
+          fail_on_unmatched_files: true
+          make_latest: false
