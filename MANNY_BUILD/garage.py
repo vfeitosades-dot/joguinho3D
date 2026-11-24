@@ -85,6 +85,15 @@ for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
 rng=np.random.default_rng(4242)
 grain=rng.integers(155,222,(128,128),dtype=np.uint8)
 Image.fromarray(grain).convert("RGB").save(assets/"asphalt.png")
+# CC0 photographed sky, 1K. Procedural sky remains available as fallback.
+try:
+    url="https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/sunflowers_puresky_1k.hdr"
+    raw_sky=urllib.request.urlopen(urllib.request.Request(url,headers={"User-Agent":"MotorLab/1.0"}),timeout=25).read()
+    if not raw_sky.startswith((b"#?RADIANCE",b"#?RGBE")): raise ValueError("not HDR")
+    (assets/"real_sky.hdr").write_bytes(raw_sky)
+    print("REAL_SKY_READY",len(raw_sky))
+except Exception as e:
+    print("REAL_SKY_FALLBACK",str(e))
 # Small procedurally painted alpha textures, no volumetric clouds or screen-space ray tracing.
 from PIL import ImageFilter
 yy,xx=np.mgrid[0:128,0:256]
@@ -135,3 +144,6 @@ with credits.open("a") as f:
     f.write("\nMotor Lab cars: vinish.dev (https://vinish.dev/free-3d-models/realistic-cars), CC BY 4.0.\n")
     for item in catalog: f.write(item["title"]+" by vinish.dev; GLB adapted: textures capped at 512px, simplified material maps, polished paint, front/rear localized deformation shapes, approximate extracted driver door, wheel and steering motion.\n")
     f.write("https://creativecommons.org/licenses/by/4.0/\nOriginal synthetic engine loop.\n")
+
+with credits.open("a") as f:
+    f.write("\nSky panorama: Sunflowers (Pure Sky), Poly Haven, CC0, https://polyhaven.com/a/sunflowers_puresky.\n")

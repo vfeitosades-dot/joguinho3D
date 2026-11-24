@@ -1,9 +1,40 @@
 extends RefCounted
 
+static func import_pack(path: String) -> bool:
+	var raw: PackedByteArray
+	if path.get_extension().to_lower() == "zip":
+		var zip := ZIPReader.new()
+		if zip.open(path) != OK:
+			return false
+		for filename in zip.get_files():
+			if filename.get_file() == "MotionSmith_manny.json":
+				raw = zip.read_file(filename)
+				break
+		zip.close()
+	else:
+		raw = FileAccess.get_file_as_bytes(path)
+	if raw.is_empty() or raw.size() > 5000000:
+		return false
+	var parsed: Variant = JSON.parse_string(raw.get_string_from_utf8())
+	if not parsed is Dictionary or int(parsed.get("format",0)) != 1 or not parsed.get("clips") is Dictionary:
+		return false
+	for name in ["walk","jog","sprint","start_walk","jump_up","jump_forward"]:
+		var clip: Variant = parsed["clips"].get(name)
+		if not clip is Dictionary or not clip.get("times") is Array or not clip.get("rotations") is Dictionary:
+			return false
+		if clip["times"].size() < 2 or clip["rotations"].size() < 20:
+			return false
+	var target := FileAccess.open("user://MotionSmith_manny.json",FileAccess.WRITE)
+	if target == null:
+		return false
+	target.store_buffer(raw)
+	target.close()
+	return true
+
 static func load_pack(anim: AnimationPlayer, skeleton: Skeleton3D, clips: Dictionary) -> Dictionary:
-	var path := OS.get_executable_path().get_base_dir().path_join("MotionSmith_manny.json")
+	var path := "user://MotionSmith_manny.json"
 	if not FileAccess.file_exists(path):
-		path = "user://MotionSmith_manny.json"
+		path = OS.get_executable_path().get_base_dir().path_join("MotionSmith_manny.json")
 	if not FileAccess.file_exists(path):
 		path = "res://assets/manny/MotionSmith_manny.json"
 	if not FileAccess.file_exists(path):

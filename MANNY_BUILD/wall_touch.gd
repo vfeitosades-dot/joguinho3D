@@ -190,8 +190,17 @@ func drive_pose(car: Node3D, delta: float, amount: float = 1.0) -> void:
 	var right := car.get("grip_right") as Node3D
 	if left == null or right == null:
 		return
-	_set_arm(0, right.get_global_transform_interpolated().origin, amount, delta)
-	_set_arm(1, left.get_global_transform_interpolated().origin, amount, delta)
+	var wheel := car.get("steering_wheel") as Node3D
+	if wheel != null:
+		var center: Vector3 = wheel.get_global_transform_interpolated().origin
+		var normal: Vector3 = wheel.get_global_transform_interpolated().basis.z.normalized()
+		for i in range(2):
+			var grip := right if i == 0 else left
+			var contact: Vector3 = grip.get_global_transform_interpolated().origin
+			var outward: Vector3 = (contact - center).slide(normal).normalized()
+			var wrist: Vector3 = contact + outward * 0.065 - normal * 0.025
+			var shoulder: Vector3 = _world(shoulders[i])
+			_set_arm(i, shoulder + (wrist - shoulder).limit_length(reaches[i] * 0.99), amount, delta)
 	for i in range(leg_solvers.size()):
 		if not leg_solvers[i].is_running():
 			leg_markers[i].global_position = _world(feet[i])
@@ -203,10 +212,11 @@ func drive_pose(car: Node3D, delta: float, amount: float = 1.0) -> void:
 func door_pose(car: Node3D, inside: bool, amount: float, delta: float) -> void:
 	if solvers.size() != 2:
 		return
+	var arm: int = 1 if inside else 0
 	var target: Vector3 = car.call("handle_world", inside)
-	var shoulder: Vector3 = _world(shoulders[0])
-	target = shoulder + (target - shoulder).limit_length(reaches[0] * 0.98)
-	_set_arm(0, target, clampf(amount, 0.0, 1.0), delta)
+	var shoulder: Vector3 = _world(shoulders[arm])
+	target = shoulder + (target - shoulder).limit_length(reaches[arm] * 0.98)
+	_set_arm(arm, target, clampf(amount, 0.0, 1.0), delta)
 
 func fade_door(amount: float) -> void:
 	if solvers.size() != 2:

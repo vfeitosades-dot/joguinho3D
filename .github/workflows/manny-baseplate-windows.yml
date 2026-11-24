@@ -95,10 +95,10 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v11-crash
-          name: "Motor Lab V11 - Refinement & Collision"
+          tag_name: baseplate-manny-v12-sky-motion
+          name: "Motor Lab V12 - Sky & Motion"
           body: |
-            Entrada e saida sincronizadas com portas, IK de macaneta e banco, pintura mais polida, impulso por massa, rotacao de impacto e deformacao localizada dianteira/traseira. Suporte ao pack MotionSmith privado junto ao EXE ou em user://.
+            Ceu fotografico CC0 com fallback, importacao local MotionSmith pelo menu, ajuste das maos e transicoes separadas na porta e volante.
             Sete carros, nove animacoes do Manny e interacao ambiental com parede.
             Testes de renderizacao OpenGL em Linux e executavel Windows headless.
             Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.

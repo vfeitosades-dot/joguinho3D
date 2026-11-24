@@ -294,7 +294,7 @@ func _play(state: String) -> void:
 		elif was_grounded and velocity.y > 0.0:
 			jump_clip = "jump_forward" if actual_speed > 0.8 else "jump_up"
 			_play(jump_clip)
-		elif not _state.begins_with("jump"):
+		elif not _state.begins_with("jump") or (_anim != null and not _anim.is_playing()):
 			_play("fall")
 	elif _land_time > 0.0:
 		jump_clip = ""

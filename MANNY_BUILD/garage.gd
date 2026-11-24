@@ -41,6 +41,8 @@ var dash: Control
 var hud_panel: PanelContainer
 var hud_clock: float = 0.0
 var seated_scale: float = 0.88
+var pack_status: Label
+var pack_dialog: FileDialog
 
 
 func _ready() -> void:
@@ -466,7 +468,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V11", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V12", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -480,6 +482,18 @@ func _create_menu() -> void:
 	quality_select.custom_minimum_size.y = 40
 	quality_select.item_selected.connect(_apply_quality)
 	stack.add_child(quality_select)
+	pack_status = _label("MotionSmith: ativo" if not (player.get("motion_speeds") as Dictionary).is_empty() else "MotionSmith: importar ZIP ou JSON", 12, Color(0.62,0.79,0.83))
+	stack.add_child(pack_status)
+	var import_button := _menu_button("IMPORTAR ANIMAÇÕES")
+	stack.add_child(import_button)
+	pack_dialog = FileDialog.new()
+	pack_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	pack_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	pack_dialog.filters = PackedStringArray(["*.zip ; Pack MotionSmith", "*.json ; MotionSmith JSON"])
+	pack_dialog.title = "Selecione o pack de animações"
+	menu.add_child(pack_dialog)
+	import_button.pressed.connect(func(): pack_dialog.popup_centered_ratio(0.75))
+	pack_dialog.file_selected.connect(_import_motion_pack)
 	var full := _menu_button("TELA CHEIA / JANELA")
 	full.pressed.connect(func(): get_window().mode = Window.MODE_WINDOWED if get_window().mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN)
 	stack.add_child(full)
@@ -488,6 +502,13 @@ func _create_menu() -> void:
 	stack.add_child(quit)
 	stack.add_child(_label("WASD • E interagir • ESC menu • F11 tela cheia", 12, Color(0.64, 0.73, 0.81)))
 	menu.hide()
+
+func _import_motion_pack(path: String) -> void:
+	if not preload("res://scripts/motion_loader.gd").import_pack(path):
+		pack_status.text = "Pack inválido. Selecione o ZIP MotionSmith."
+		return
+	pack_status.text = "Pack instalado. Reiniciando a cena..."
+	get_tree().reload_current_scene.call_deferred()
 
 func _menu_button(value: String) -> Button:
 	var button := Button.new()
@@ -511,17 +532,23 @@ func _apply_quality(mode: int) -> void:
 	quality = mode
 	var window := get_window()
 	window.content_scale_size = Vector2i(1920, 1080) if mode == 2 else (Vector2i(1280, 720) if mode == 1 else Vector2i(960, 540))
-	if mode >= 1 and sky_quality == null:
+	if sky_quality == null:
 		sky_quality = Sky.new()
-		var sky_mat := ProceduralSkyMaterial.new()
-		sky_mat.sky_top_color = Color(0.18, 0.43, 0.76)
-		sky_mat.sky_horizon_color = Color(0.78, 0.88, 0.97)
-		sky_mat.sun_angle_max = 8.0
-		sky_quality.sky_material = sky_mat
+		if ResourceLoader.exists("res://assets/garage/real_sky.hdr"):
+			var panorama := PanoramaSkyMaterial.new()
+			panorama.panorama = load("res://assets/garage/real_sky.hdr") as Texture2D
+			panorama.energy_multiplier = 0.75
+			sky_quality.sky_material = panorama
+		else:
+			var sky_mat := ProceduralSkyMaterial.new()
+			sky_mat.sky_top_color = Color(0.18, 0.43, 0.76)
+			sky_mat.sky_horizon_color = Color(0.78, 0.88, 0.97)
+			sky_mat.sun_angle_max = 8.0
+			sky_quality.sky_material = sky_mat
 		sky_quality.radiance_size = Sky.RADIANCE_SIZE_64
 	var env := world_env.environment
-	env.sky = sky_quality if mode >= 1 else null
-	env.background_mode = Environment.BG_SKY if mode >= 1 else Environment.BG_COLOR
+	env.sky = sky_quality
+	env.background_mode = Environment.BG_SKY
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if mode >= 1 else Environment.AMBIENT_SOURCE_COLOR
 	sun.shadow_enabled = mode == 2
 	camera.far = 100.0 if mode >= 1 else 78.0
@@ -674,12 +701,17 @@ func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 		anim.advance(0.0)
 	rig.call("align_hips", destination, 1.0)
 	if not immediate:
-		car.call("set_door", false)
-		await _animate_phase(0.48, func(t: float, dt: float):
+		await _animate_phase(0.22, func(t: float, dt: float):
 			rig.call("align_hips", car.call("seat_world"), 1.0)
-			rig.call("drive_pose", car, dt, t)
-			if t < 0.5:
-				rig.call("door_pose", car, true, 1.0 - t * 1.6, dt))
+			rig.call("door_pose", car, true, t, dt))
+		car.call("set_door", false)
+		await _animate_phase(0.43, func(t: float, dt: float):
+			rig.call("align_hips", car.call("seat_world"), 1.0)
+			rig.call("door_pose", car, true, 1.0 - t * 0.15, dt))
+		rig.call("release_now")
+		await _animate_phase(0.28, func(t: float, dt: float):
+			rig.call("align_hips", car.call("seat_world"), 1.0)
+			rig.call("drive_pose", car, dt, t))
 	car.call("set_door", false)
 	car.set("transition_locked", false)
 	camera.set("target", car)

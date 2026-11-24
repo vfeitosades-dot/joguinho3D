@@ -17,7 +17,7 @@ func _ready() -> void:
 	cloud_material.no_depth_test = false
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7081
-	for i in range(7):
+	for i in range(0 if ResourceLoader.exists("res://assets/garage/real_sky.hdr") else 7):
 		var angle: float = TAU * float(i) / 7.0
 		var pos := Vector3(cos(angle) * 42.0, 22.0 + rng.randf_range(-3.0, 8.0), sin(angle) * 42.0)
 		var cloud := _quad(Vector2(rng.randf_range(19.0, 31.0), rng.randf_range(5.5, 9.0)), cloud_material)
