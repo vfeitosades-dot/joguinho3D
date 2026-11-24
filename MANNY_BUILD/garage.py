@@ -18,7 +18,7 @@ for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0"})
     raw=urllib.request.urlopen(req,timeout=120).read()
     assert hashlib.sha256(raw).hexdigest()==sha, "Asset differs from uploaded model: "+name
-    (assets/(name+".glb")).write_bytes(raw)
+    (assets/(name+".glbdata")).write_bytes(raw)
     catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz))
     print("VERIFIED",name,len(raw))
 (assets/"catalog.json").write_text(json.dumps(catalog))
@@ -30,7 +30,7 @@ with wave.open(str(assets/"engine.wav"),"wb") as w:
     w.setnchannels(1);w.setsampwidth(2);w.setframerate(rate);w.writeframes((signal*24000).astype("<i2").tobytes())
 preset=project/"export_presets.cfg"
 preset.write_text(preset.read_text().replace("*.glbdata, CREDITS.txt","*.glbdata, *.json, CREDITS.txt"))
-for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd")]:
+for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd")]:
     shutil.copyfile(base/src,project/"scripts"/dest)
 settings=project/"project.godot"
 s=settings.read_text().replace('viewport_width=1280','viewport_width=960').replace('viewport_height=720','viewport_height=540').replace('window/stretch/mode="canvas_items"','window/stretch/mode="viewport"')

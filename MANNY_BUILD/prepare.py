@@ -205,6 +205,8 @@ var _anim: AnimationPlayer
 var _clips: Dictionary = {}
 var _state: String = ""
 var _land_time: float = 0.0
+var wall_touch: Node
+
 
 func _ready() -> void:
 	_setup_controls()
@@ -233,6 +235,9 @@ func _ready() -> void:
 	pivot.scale = Vector3.ONE * 0.7278
 	pivot.rotation.y = PI
 	pivot.add_child(model)
+	wall_touch = preload("res://scripts/wall_touch.gd").new()
+	add_child(wall_touch)
+	wall_touch.call("setup", self, _body_visual, model)
 	_anim = _find_animation_player(model)
 	if _anim == null:
 		push_error("Manny sem AnimationPlayer.")
@@ -264,9 +269,13 @@ func _play(state: String) -> void:
 		return
 	_state = state
 	var clip: StringName = _clips[state]
-	_anim.play(clip, 0.12)
+	_anim.play(clip, 0.18)
+	if state in ["enter", "drive", "exit"] and wall_touch != null:
+		wall_touch.call("release_now")
 
-'''+physics+'''	var actual_speed: float = Vector2(velocity.x, velocity.z).length()
+'''+physics+'''	if wall_touch != null:
+		wall_touch.call("update_contact", delta, move_direction)
+	var actual_speed: float = Vector2(velocity.x, velocity.z).length()
 	if not was_grounded and is_on_floor():
 		_land_time = 0.52
 	_land_time = maxf(0.0, _land_time - delta)

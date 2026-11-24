@@ -45,6 +45,7 @@ jobs:
           grep -F 'MANNY_READY: 9 clips' /tmp/manny-test.log
           grep -F 'GARAGE_READY: 7 cars' /tmp/manny-test.log
           grep -F 'GARAGE_TEST_OK' /tmp/manny-test.log
+          grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-test.log
       - name: Compilar para Windows
         run: |
           mkdir -p build/manny
@@ -60,8 +61,8 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v4-garage
-          name: "Motor Lab v4 - Manny e sete carros"
+          tag_name: baseplate-manny-v5-wall
+          name: "Motor Lab v5 - Interacao com parede"
           body: |
             Baseplate Godot com o modelo enviado, verificado por SHA-256.
             Seis clipes do pack Universal Animation Library Standard de Quaternius (CC0), adaptados ao esqueleto Manny: Idle, Walk, Run, Jump, Fall, Land. Fonte: https://quaternius.itch.io/universal-animation-library
@@ -71,7 +72,7 @@ jobs:
             Design Manny e Unreal Engine: Epic Games.
             Alteracoes: animacoes e ajuste de escala/orientacao.
             Sete carros vinish.dev, CC BY 4.0, SHA-256 conferido com os arquivos enviados. Rodas e volante animados, movimento, ativacao ficticia, perfis de qualidade. Sem ray tracing real.\n            Animacoes adicionais: Sitting Enter, Driving Loop, Sitting Exit (Quaternius CC0).
-            Veja CREDITS.txt.
+            Interacao ambiental: gesto de apoio da mao na parede de teste, com IK e transicoes suaves.\n            Veja CREDITS.txt.
           files: |
             build/manny/Baseplate_Manny.exe
             build/manny/CREDITS.txt

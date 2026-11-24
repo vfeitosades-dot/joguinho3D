@@ -28,27 +28,32 @@ func setup(path: String, data: Dictionary) -> bool:
 	max_speed = data["top"]
 	acceleration = data["accel"]
 	seat = Vector3(data["seat_x"], data["seat_y"], data["seat_z"])
-	var scene := load(path) as PackedScene
-	if scene == null:
+	var doc := GLTFDocument.new()
+	var gltf := GLTFState.new()
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if doc.append_from_buffer(bytes, "", gltf) != OK:
 		push_error("CAR_LOAD_FAILED " + path)
 		return false
 	visual = Node3D.new()
 	add_child(visual)
-	var model := scene.instantiate() as Node3D
+	var model := doc.generate_scene(gltf) as Node3D
 	if model == null:
+		push_error("CAR_SCENE_FAILED " + path)
 		return false
 	visual.add_child(model)
 	for name_part in ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]:
-		var wheel := model.find_child(name_part, true, false) as Node3D
+		var wheel := _part(model, name_part)
 		if wheel == null:
 			push_error("Missing wheel " + name_part)
 			return false
 		wheels.append(wheel)
 		wheel_bases.append(wheel.basis)
-	steering_wheel = model.find_child("Steering_Wheel", true, false) as Node3D
-	if steering_wheel == null:
-		return false
-	steering_basis = steering_wheel.basis
+	steering_wheel = _part(model, "Steering_Wheel")
+	if steering_wheel != null:
+		steering_basis = steering_wheel.basis
+	else:
+		push_warning("No steering node for " + title)
+	print("CAR_PARTS: ", title, " wheels=", wheels.size(), " steering=", steering_wheel != null)
 	var collider := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(width * 0.95, float(data["height"]) * 0.85, length * 0.95)
@@ -68,6 +73,17 @@ func setup(path: String, data: Dictionary) -> bool:
 	motor.volume_db = -18.0
 	add_child(motor)
 	return true
+
+func _part(node: Node, wanted: String) -> Node3D:
+	var key: String = String(node.name).to_lower().replace("_", "").replace(" ", "").replace("-", "")
+	var target: String = wanted.to_lower().replace("_", "").replace(" ", "").replace("-", "")
+	if node is Node3D and (key == target or key.begins_with(target)):
+		return node as Node3D
+	for child in node.get_children():
+		var part := _part(child, wanted)
+		if part != null:
+			return part
+	return null
 
 func _create_shadow() -> void:
 	shadow_mesh = MeshInstance3D.new()

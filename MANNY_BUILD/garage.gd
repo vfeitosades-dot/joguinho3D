@@ -33,6 +33,7 @@ var perf_timer: float = 0.0
 func _ready() -> void:
 	_create_world()
 	_create_ground()
+	_create_wall()
 	player = CharacterBody3D.new()
 	player.name = "Humanoide"
 	player.position = Vector3(0.0, 0.04, -6.0)
@@ -52,7 +53,7 @@ func _ready() -> void:
 		car.position = Vector3(-18.0 + float(i % 4) * 12.0, 0.03, 4.0 + float(floori(float(i) / 4.0)) * 12.0)
 		car.rotation.y = PI if i >= 4 else 0.0
 		add_child(car)
-		if car.call("setup", "res://assets/garage/" + str(data["file"]) + ".glb", data):
+		if car.call("setup", "res://assets/garage/" + str(data["file"]) + ".glbdata", data):
 			cars.append(car)
 		else:
 			car.queue_free()
@@ -90,7 +91,49 @@ func _test() -> void:
 		get_tree().quit(4)
 		return
 	print("GARAGE_TEST_OK")
+	var gesture := player.get("wall_touch") as Node
+	if gesture == null or gesture.get("ik") == null:
+		push_error("Wall gesture not initialized")
+		get_tree().quit(5)
+		return
+	player.global_position = Vector3(0, 0.04, -12.38)
+	var body := player.get("_body_visual") as Node3D
+	body.rotation.y = 0.0
+	for i in range(36):
+		await get_tree().physics_frame
+	if not bool(gesture.get("active_contact")) or float(gesture.get("blend")) < 0.75:
+		push_error("Wall contact not detected: " + str(gesture.get("blend")))
+		get_tree().quit(6)
+		return
+	player.global_position = Vector3(0, 0.04, -10.0)
+	for i in range(30):
+		await get_tree().physics_frame
+	if float(gesture.get("blend")) > 0.01:
+		get_tree().quit(7)
+		return
+	print("WALL_TOUCH_TEST_OK")
 	get_tree().quit()
+
+func _create_wall() -> void:
+	var wall := StaticBody3D.new()
+	wall.name = "Parede_de_teste"
+	wall.position = Vector3(0.0, 1.45, -13.0)
+	wall.add_to_group("touch_wall")
+	add_child(wall)
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(9.0, 2.9, 0.36)
+	var collider := CollisionShape3D.new()
+	collider.shape = shape
+	wall.add_child(collider)
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = shape.size
+	mesh.mesh = box
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.56, 0.58, 0.60)
+	mat.roughness = 0.93
+	mesh.material_override = mat
+	wall.add_child(mesh)
 
 func _create_world() -> void:
 	world_env = WorldEnvironment.new()
