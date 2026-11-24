@@ -38,132 +38,147 @@ def accessor(a,kind):
     if kind=="SCALAR": d.update(min=[float(a.min())],max=[float(a.max())])
     j["accessors"].append(d)
     return idx
-# Original gait design, using reference poses and analytic two-bone leg IK.
-def local_matrix(i):
-    n=nodes[i]
-    if "matrix" in n: return np.array(n["matrix"]).reshape(4,4).T
-    m=np.eye(4); m[:3,:3]=localrot(i).as_matrix()@np.diag(n.get("scale",[1,1,1]))
-    m[:3,3]=n.get("translation",[0,0,0])
-    return m
-rest=[local_matrix(i) for i in range(len(nodes))]
-def rest_world(i):
-    return rest_world(parent[i])@rest[i] if i in parent else rest[i]
-rw=[rest_world(i) for i in range(len(nodes))]
-def rotation(m):
-    a=m[:3,:3]
-    return R.from_matrix(a/np.linalg.norm(a,axis=0))
+# Retarget original Quaternius CC0 animation curves to the uploaded Manny.
+from scipy.spatial.transform import Slerp
+import os, re
+url="https://github.com/WaviestSun/atelier-packs/releases/download/characters-1/UAL1_Standard.glb"
+pack=pathlib.Path(os.environ["UAL_GLB"]).read_bytes() if "UAL_GLB" in os.environ else urllib.request.urlopen(url,timeout=120).read()
+assert hashlib.sha256(pack).hexdigest()=="69591853d817488edaa8fd9bf8fc1d821eaeaf789f8627b3cd23b41c4ed67997", "UAL differs from the uploaded ZIP"
+n=struct.unpack_from("<I",pack,12)[0]
+sj=json.loads(pack[20:20+n]); sb=pack[28+n:]
+sn=sj["nodes"]; sp={c:i for i,x in enumerate(sn) for c in x.get("children",[])}
+def matrix(x):
+    if "matrix" in x: return np.array(x["matrix"]).reshape(4,4).T
+    m=np.eye(4); m[:3,:3]=R.from_quat(x.get("rotation",[0,0,0,1])).as_matrix()@np.diag(x.get("scale",[1,1,1]))
+    m[:3,3]=x.get("translation",[0,0,0]); return m
+def worlds(local,parents):
+    out={}
+    def calc(i):
+        if i not in out: out[i]=calc(parents[i])@local[i] if i in parents else local[i]
+        return out[i]
+    return [calc(i) for i in range(len(local))]
+def rot(m):
+    a=m[:3,:3]; return R.from_matrix(a/np.linalg.norm(a,axis=0))
 def unit(a): return a/max(np.linalg.norm(a),1e-9)
 def between(a,b):
-    a,b=unit(a),unit(b); c=np.cross(a,b); d=np.clip(np.dot(a,b),-1,1)
-    if np.linalg.norm(c)<1e-8:
+    a,b=unit(a),unit(b); cross=np.cross(a,b); d=np.clip(np.dot(a,b),-1,1)
+    if np.linalg.norm(cross)<1e-8:
         return R.identity() if d>0 else R.from_rotvec(unit(np.cross(a,[1,0,0] if abs(a[0])<.8 else [0,1,0]))*math.pi)
-    return R.from_rotvec(unit(c)*math.atan2(np.linalg.norm(c),d))
-def smooth(t):
-    t=max(0,min(1,t)); return t*t*(3-2*t)
-def ease(a,b,t): return a+(b-a)*smooth(t)
-ids=[8,9,10,11,12,13,14,15,16,17,18,19,22,44,45,46,49,71,72,73,74,79,80,81,82]
-scale=.7278
-speeds={"Walk":1.55,"Run":3.4}
-durations={"Idle":3.2,"Walk":1.0,"Run":.72,"Jump":.34,"Fall":.65,"Land":.25}
-def step(name,t):
-    run=name=="Run"; t=t%1; stance=.39 if run else .61
-    d=speeds[name]*durations[name]/scale; front=d*stance/2
-    if t<stance:
-        u=t/stance; z=front-d*t
-        pitch=ease(-10,0,u/.18) if u<.18 else ease(0,26 if run else 22,(u-.67)/.33)
-        lift=max(0,math.sin(math.radians(pitch)))*.17
-    else:
-        u=(t-stance)/(1-stance)
-        z=-front+2*front*smooth(u)-d*(1-stance)*u*(1-u)*(1-2*u)
-        lift=(.36 if run else .17)*math.sin(math.pi*u)**1.55+.17*math.sin(math.radians(26 if run else 22))*(1-u)
-        pitch=ease(26 if run else 22,-10,u)
-    return z,lift,pitch
-def pose(name,t):
-    p=2*math.pi*t; wave=math.sin(p); cycle=math.cos(p)
-    rot={i:(0.,0.,0.) for i in ids}
-    rot[18]=(-3,0,-27); rot[45]=(-3,0,27)
-    rot[19]=(-10,0,0); rot[46]=(-10,0,0)
-    rot[22]=(2,0,-3); rot[49]=(2,0,3)
-    off=np.array([0.,-.065,0.]); targets=[]
-    if name in speeds:
-        run=name=="Run"
-        off=np.array([.038*wave,-(.21 if run else .15)+(.055 if run else .027)*(-math.cos(2*p)),0])
-        rot[8]=(4 if run else 1,5*cycle,-2.6*wave)
-        for i in [9,10,11,12,13]: rot[i]=(2.2 if run else .45,-1.8*cycle,.55*wave)
-        rot[14]=(-3 if run else -1,-cycle,0); rot[16]=(-4 if run else -1,0,-.5*wave)
-        for side,cl,arm,elbow,hand,th,ca,ft,ball in [(1,17,18,19,22,79,80,81,82),(-1,44,45,46,49,71,72,73,74)]:
-            u=(t+(0 if side==1 else .5))%1; swing=math.cos(2*math.pi*u-.16)
-            rot[cl]=(1.5*swing,0,-1.5*side)
-            rot[arm]=((29 if run else 17)*swing,2*side,-(25 if run else 29)*side)
-            rot[elbow]=(-(52 if run else 15)+(10 if run else 5)*swing,0,0)
-            rot[hand]=(4*swing,0,2*side)
-            z,lift,pitch=step(name,u)
-            target=rw[ft][:3,3].copy()+np.array([-.028*side,lift,z])
-            targets.append((th,ca,ft,ball,target,pitch))
-    elif name=="Idle":
-        off=np.array([.025*wave,-.065+.009*cycle,0])
-        rot[8]=(0,1.2*wave,-1.5*wave); rot[12]=(-1.2*cycle,-1.5*wave,.5*wave)
-        rot[13]=(-.8*cycle,0,0); rot[16]=(1.3*wave,1.3*wave,0)
-        for th,ca,ft,ball in [(79,80,81,82),(71,72,73,74)]:
-            targets.append((th,ca,ft,ball,rw[ft][:3,3].copy(),0))
-    elif name=="Land":
-        k=math.sin(math.pi*t)**1.2; off=np.array([0,-.065-.24*k,0])
-        rot[8]=(8*k,0,0); rot[10]=(7*k,0,0); rot[12]=(8*k,0,0); rot[16]=(-10*k,0,0)
-        rot[18]=(-14*k,0,-22); rot[45]=(-14*k,0,22)
-        rot[19]=(-18,0,0); rot[46]=(-18,0,0)
-        for th,ca,ft,ball in [(79,80,81,82),(71,72,73,74)]:
-            target=rw[ft][:3,3].copy(); target[2]+=.08*k
-            targets.append((th,ca,ft,ball,target,0))
-    else:
-        k=smooth(t) if name=="Jump" else .72+.09*wave
-        off=np.array([0,-.065-.045*k,0])
-        rot[8]=(5+5*k,0,0); rot[10]=(-4*k,0,0); rot[12]=(-4*k,0,0)
-        rot[18]=(-36-23*k,0,-20); rot[45]=(-28-18*k,0,20)
-        rot[19]=(-32-18*k,0,0); rot[46]=(-32-18*k,0,0); rot[16]=(-4,0,0)
-        for side,th,ca,ft,ball in [(1,79,80,81,82),(-1,71,72,73,74)]:
-            target=rw[ft][:3,3].copy(); target[1]+=(.25 if side==1 else .19)*k+.08
-            target[2]+=(.31 if side==1 else -.14)*k
-            targets.append((th,ca,ft,ball,target,12 if name=="Jump" else 0))
-    lr={i:R.from_quat(delta(i,*rot[i])) for i in ids}
-    ht=np.array(nodes[8]["translation"])+np.linalg.solve(rw[parent[8]][:3,:3],off)
-    def world(i):
-        m=rest[i].copy()
-        if i in lr: m[:3,:3]=lr[i].as_matrix()@np.diag(nodes[i].get("scale",[1,1,1]))
-        if i==8: m[:3,3]=ht
-        return world(parent[i])@m if i in parent else m
-    def aim(i,child,target):
-        current=world(i); direction=world(child)[:3,3]-current[:3,3]
-        desired=between(direction,target-current[:3,3])*rotation(current)
-        lr[i]=rotation(world(parent[i])).inv()*desired
-    for th,ca,ft,ball,target,pitch in targets:
-        h=world(th)[:3,3]
-        l1=np.linalg.norm(rw[ca][:3,3]-rw[th][:3,3]); l2=np.linalg.norm(rw[ft][:3,3]-rw[ca][:3,3])
-        v=target-h; length=min(l1+l2-.004,max(abs(l1-l2)+.004,np.linalg.norm(v)))
-        axis=unit(v); target=h+axis*length
-        pole=np.array([0.,0.,1.]); pole=unit(pole-axis*np.dot(pole,axis))
-        a=(l1*l1-l2*l2+length*length)/(2*length)
-        knee=h+axis*a+pole*math.sqrt(max(0,l1*l1-a*a))
-        aim(th,ca,knee); aim(ca,ft,target)
-        want=R.from_euler("x",pitch,degrees=True)*rotation(rw[ft])
-        lr[ft]=rotation(world(parent[ft])).inv()*want
-        lr[ball]=R.from_quat(delta(ball,-max(0,pitch)*.5,0,0))
-    return {i:lr[i].as_quat() for i in ids},ht
-for name,duration in durations.items():
-    times=np.linspace(0,duration,max(25,round(duration*60)+1)); inp=accessor(times,"SCALAR")
-    samples=[pose(name,float(t/duration)) for t in times]
-    if name in ("Idle","Walk","Run","Fall"): samples[-1]=samples[0]
-    samplers=[]; channels=[]
-    for i in ids:
-        q=np.stack([v[i] for v,_ in samples])
-        for k in range(1,len(q)):
-            if np.dot(q[k-1],q[k])<0: q[k]*=-1
-        out=accessor(q,"VEC4")
-        channels.append({"sampler":len(samplers),"target":{"node":i,"path":"rotation"}})
+    return R.from_rotvec(unit(cross)*math.atan2(np.linalg.norm(cross),d))
+sr=[matrix(x) for x in sn]; tr=[matrix(x) for x in nodes]
+sw=worlds(sr,sp); tw=worlds(tr,parent)
+S={x["name"].lower():i for i,x in enumerate(sn)}
+T={re.sub(r"_\d+$","",x["name"].lower()):i for i,x in enumerate(nodes)}
+# Keep the five-segment Manny spine, distributing source motion over its chain.
+pairs={"pelvis":"pelvis","spine_01":"spine_01","spine_03":"spine_02","spine_05":"spine_03","neck_01":"neck_01","head":"head"}
+for side in ("l","r"):
+    for name in ("clavicle","upperarm","lowerarm","hand","thigh","calf","foot","ball"):
+        pairs[name+"_"+side]=name+"_"+side
+    for finger in ("index","middle","ring","pinky","thumb"):
+        for k in range(1,4):
+            name=f"{finger}_{k:02d}_{side}"
+            if name in T and name in S: pairs[name]=name
+mapping={T[t]:S[q] for t,q in pairs.items()}
+# Align anatomical axes in the reference T pose (source) vs Manny A pose (target).
+children={}
+for side in ("l","r"):
+    for a,b in [("clavicle","upperarm"),("upperarm","lowerarm"),("lowerarm","hand"),("thigh","calf"),("calf","foot"),("foot","ball")]:
+        children[a+"_"+side]=(b+"_"+side,b+"_"+side)
+    children["hand_"+side]=("middle_01_"+side,"middle_01_"+side)
+    for finger in ("index","middle","ring","pinky","thumb"):
+        for k in range(1,3):
+            a=f"{finger}_{k:02d}_{side}"; b=f"{finger}_{k+1:02d}_{side}"
+            children[a]=(b,b)
+cal={}
+for name,src in pairs.items():
+    ti,si=T[name],S[src]; ref=rot(tw[ti])
+    if name in children:
+        a,b=children[name]
+        if a in T and b in S:
+            ref=between(tw[T[a]][:3,3]-tw[ti][:3,3],sw[S[b]][:3,3]-sw[si][:3,3])*ref
+    cal[ti]=rot(sw[si]).inv()*ref
+# For terminal fingers and toes use the preceding bone's anatomical correction.
+for name,src in pairs.items():
+    ti,si=T[name],S[src]
+    if name.startswith(("index_03","middle_03","ring_03","pinky_03","thumb_03","ball_")):
+        p=parent[ti]
+        if p in cal:
+            correction=rot(sw[mapping[p]])*cal[p]*rot(tw[p]).inv()
+            cal[ti]=rot(sw[si]).inv()*correction*rot(tw[ti])
+def readacc(i):
+    a=sj["accessors"][i]; v=sj["bufferViews"][a["bufferView"]]
+    width={"SCALAR":1,"VEC3":3,"VEC4":4}[a["type"]]
+    return np.ndarray((a["count"],width),dtype="<f4",buffer=sb,offset=v.get("byteOffset",0)+a.get("byteOffset",0),strides=(v.get("byteStride",4*width),4)).copy()
+def sample_channel(a,c,times):
+    sampler=a["samplers"][c["sampler"]]; ts=readacc(sampler["input"]).ravel(); vals=readacc(sampler["output"])
+    if len(ts)==1: return np.repeat(vals,len(times),axis=0)
+    tt=np.clip(times,ts[0],ts[-1])
+    if c["target"]["path"]=="rotation": return Slerp(ts,R.from_quat(vals))(tt).as_quat()
+    return np.stack([np.interp(tt,ts,vals[:,k]) for k in range(vals.shape[1])],axis=1)
+hip=T["pelvis"]; sh=S["pelvis"]
+ratio=tw[hip][1,3]/sw[sh][1,3]
+clips={"Idle":"Idle_Loop","Walk":"Walk_Loop","Run":"Jog_Fwd_Loop","Jump":"Jump_Start","Fall":"Jump_Loop","Land":"Jump_Land"}
+library={a["name"]:a for a in sj["animations"]}
+ids=sorted(mapping)
+for name,original in clips.items():
+    a=library[original]
+    dur=max(float(readacc(k["input"])[-1,0]) for k in a["samplers"])
+    # The jump-start clip has a long airborne tail; keep the actual launch.
+    used=min(dur,.40) if name=="Jump" else dur
+    times=np.linspace(0,used,max(2,round(used*30)+1))
+    if name=="Land": output_times=times*(.52/used)
+    elif name=="Jump": output_times=times*(.33/used)
+    else: output_times=times
+    channels_src={}
+    for c in a["channels"]:
+        path=c["target"]["path"]
+        if path in ("rotation","translation"): channels_src[c["target"]["node"],path]=sample_channel(a,c,times)
+    frames={i:[] for i in ids}; hips=[]
+    for k in range(len(times)):
+        sl=[x.copy() for x in sr]
+        for (i,path),values in channels_src.items():
+            if path=="rotation": sl[i][:3,:3]=R.from_quat(values[k]).as_matrix()@np.diag(sn[i].get("scale",[1,1,1]))
+            else: sl[i][:3,3]=values[k]
+        spose=worlds(sl,sp)
+        # Transfer pelvis bob and sway, keeping the controller in charge of root motion.
+        offset=(spose[sh][:3,3]-sw[sh][:3,3])*ratio
+        ht=tr[hip][:3,3]+np.linalg.solve(tw[parent[hip]][:3,:3],offset)
+        world={}
+        def solve(i):
+            if i in world: return world[i]
+            pm=solve(parent[i]) if i in parent else np.eye(4)
+            m=tr[i].copy()
+            if i in mapping:
+                desired=rot(spose[mapping[i]])*cal[i]
+                local=rot(pm).inv()*desired
+                m[:3,:3]=local.as_matrix()@np.diag(nodes[i].get("scale",[1,1,1]))
+                frames[i].append(local.as_quat())
+            if i==hip: m[:3,3]=ht
+            world[i]=pm@m; return world[i]
+        for i in ids: solve(i)
+        # Reduce stance height differences caused by slightly different limb lengths.
+        if name in ("Idle","Walk","Run","Land"):
+            ta=min(solve(T["ball_"+side])[1,3] for side in ("l","r"))
+            sa=min(spose[S["ball_"+side]][1,3] for side in ("l","r"))
+            correction=float(np.clip(sa*ratio-ta,-.12,.12))
+            ht=ht+np.linalg.solve(tw[parent[hip]][:3,:3],[0,correction,0])
+        hips.append(ht)
+    inp=accessor(output_times,"SCALAR"); samplers=[]; channels=[]
+    def track(i,path,values,kind):
+        out=accessor(values,kind)
+        channels.append({"sampler":len(samplers),"target":{"node":i,"path":path}})
         samplers.append({"input":inp,"output":out,"interpolation":"LINEAR"})
-    out=accessor(np.stack([ht for _,ht in samples]),"VEC3")
-    channels.append({"sampler":len(samplers),"target":{"node":8,"path":"translation"}})
-    samplers.append({"input":inp,"output":out,"interpolation":"LINEAR"})
+    for i in ids:
+        q=np.array(frames[i])
+        if name in ("Idle","Walk","Run","Fall"): q[-1]=q[0]
+        for k in range(1,len(q)):
+            if np.dot(q[k-1],q[k])<0:q[k]*=-1
+        assert np.isfinite(q).all() and len(q)==len(times)
+        track(i,"rotation",q,"VEC4")
+    if name in ("Idle","Walk","Run","Fall"): hips[-1]=hips[0]
+    track(hip,"translation",np.array(hips),"VEC3")
     j.setdefault("animations",[]).append({"name":name,"channels":channels,"samplers":samplers})
+    print("UAL retarget:",original,"->",name,"bones",len(ids),"frames",len(times))
 j["buffers"][0]["byteLength"]=len(blob)
 js=json.dumps(j,separators=(",",":"),ensure_ascii=False).encode()
 js+=b" "*((-len(js))%4); blob.extend(b"\0"*((-len(blob))%4))
@@ -253,7 +268,7 @@ func _play(state: String) -> void:
 
 '''+physics+'''	var actual_speed: float = Vector2(velocity.x, velocity.z).length()
 	if not was_grounded and is_on_floor():
-		_land_time = 0.25
+		_land_time = 0.52
 	_land_time = maxf(0.0, _land_time - delta)
 	if not is_on_floor():
 		_land_time = 0.0
@@ -280,7 +295,7 @@ Fonte: https://sketchfab.com/3d-models/ue5-male-mannequin-manny-web-ready-9fcaad
 Distribuicao: https://huggingface.co/datasets/MazenVR/kimodo-rigs
 Licenca indicada na fonte: CC BY 4.0 https://creativecommons.org/licenses/by/4.0/
 Design Manny e Unreal Engine: Epic Games. A licenca indicada nao confirma direitos independentes sobre o design original.
-Alteracoes: seis animacoes proprias, trajetorias de pes e IK analitica. Referencias visuais: https://caveacademy.com/wiki/post-production-shots/animation/animation-training/introduction-to-animation-course/animating-a-walk-cycle/ ; https://www.animatornotebook.com/learn/walking-part-1 ; https://mocap.cs.cmu.edu/ (sem dados incorporados).
+Animacoes: Universal Animation Library Standard, Quaternius (CC0 1.0). https://quaternius.itch.io/universal-animation-library ; https://creativecommons.org/publicdomain/zero/1.0/ ; Retarget dos seis clipes para Manny. Sem root motion.
 Godot 4.4.1: MIT https://godotengine.org/license/
 """
 (project/"CREDITS.txt").write_text(credits)

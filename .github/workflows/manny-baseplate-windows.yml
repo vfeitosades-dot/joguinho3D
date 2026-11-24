@@ -57,11 +57,11 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v2
-          name: "Baseplate Manny v2 - locomocao humana"
+          tag_name: baseplate-manny-v3-ual
+          name: "Baseplate Manny v3 - Universal Animation Library"
           body: |
             Baseplate Godot com o modelo enviado, verificado por SHA-256.
-            Seis animacoes proprias: Idle, Walk, Run, Jump, Fall e Land. Trajetorias de pes, IK analitica e velocidade sincronizada. Nao sao animacoes oficiais da Unreal.
+            Seis clipes do pack Universal Animation Library Standard de Quaternius (CC0), adaptados ao esqueleto Manny: Idle, Walk, Run, Jump, Fall, Land. Fonte: https://quaternius.itch.io/universal-animation-library
             Modelo UE5 Male Mannequin - Manny - Web Ready, SketchPunk, licenca declarada CC BY 4.0.
             Fonte: https://sketchfab.com/3d-models/ue5-male-mannequin-manny-web-ready-9fcaadd206f449c2ab446d84350df370
             https://creativecommons.org/licenses/by/4.0/
