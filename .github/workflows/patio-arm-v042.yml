@@ -56,6 +56,7 @@ jobs:
           if ! command -v xvfb-run >/dev/null; then sudo apt-get update && sudo apt-get install -y xvfb; fi
           timeout 90 xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 godot --path build/Patio --script res://render_corrida.gd --resolution 640x480 2>&1 | tee /tmp/render.log
           grep -F RENDER_OK /tmp/render.log
+          python3 -m pip install --quiet Pillow
           python3 - <<'PY'
           from PIL import Image, ImageDraw
           import base64
