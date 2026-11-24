@@ -12,7 +12,8 @@ func executar() -> void:
 	ator.set_process(false)
 	ator.modelo.rotation.y = 0.0
 	var s := ator.modelo.find_children("*","Skeleton3D",true,false)[0] as Skeleton3D
-	var base := s.global_transform.basis.orthonormalized().inverse()*ator.modelo.global_transform.basis.orthonormalized()
+	var modelo: Node3D = ator.modelo
+	var base: Basis = s.global_transform.basis.orthonormalized().inverse()*modelo.global_transform.basis.orthonormalized()
 	var direita := (base*Vector3.RIGHT).normalized()
 	var min_ang := 180.0
 	var max_ang := 0.0
