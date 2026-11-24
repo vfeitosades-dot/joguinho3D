@@ -1,7 +1,7 @@
 name: Publicar executável Pátio
 on:
   push:
-    branches: [download-patio-v0.3]
+    branches: [download-patio-v0.4]
     paths: [.github/workflows/patio-download.yml]
 permissions:
   contents: write
@@ -15,5 +15,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           unzip -o Patio-Windows.zip Patio.exe
-          echo '63ea6eee55931b944e82c73591243be95f9f9118ee82520cfade917cc0e31eab  Patio.exe' | sha256sum -c -
-          gh release create patio-windows-0.3 Patio.exe Patio-Godot.zip --target "$GITHUB_SHA" --title 'Pátio 0.3 para Windows' --notes 'Caminhada com balanço de braços revisado. Baixe Patio.exe para jogar.' --latest=false
+          echo 'df9f2b7540377ae78d4714d2fdfe6ff3ef520b3034101f3a38241ab4fed1c49a  Patio.exe' | sha256sum -c -
+          gh release create patio-windows-0.4 Patio.exe Patio-Godot.zip --target "$GITHUB_SHA" --title 'Pátio 0.4 para Windows' --notes 'Corrida com ombros e cotovelos corrigidos e mais espaço entre as mãos e as coxas ao caminhar. Baixe Patio.exe para jogar.' --latest=false
