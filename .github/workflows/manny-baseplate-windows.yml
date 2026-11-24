@@ -57,8 +57,8 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v3-ual
-          name: "Baseplate Manny v3 - Universal Animation Library"
+          tag_name: baseplate-manny-v3-camera-fix
+          name: "Baseplate Manny v3.1 - Camera horizontal corrigida"
           body: |
             Baseplate Godot com o modelo enviado, verificado por SHA-256.
             Seis clipes do pack Universal Animation Library Standard de Quaternius (CC0), adaptados ao esqueleto Manny: Idle, Walk, Run, Jump, Fall, Land. Fonte: https://quaternius.itch.io/universal-animation-library
@@ -67,6 +67,7 @@ jobs:
             https://creativecommons.org/licenses/by/4.0/
             Design Manny e Unreal Engine: Epic Games.
             Alteracoes: animacoes e ajuste de escala/orientacao.
+            Correcao: eixo horizontal da camera (mouse). Nenhuma alteracao de animacoes, modelo ou cenario.
             Veja CREDITS.txt.
           files: |
             build/manny/Baseplate_Manny.exe

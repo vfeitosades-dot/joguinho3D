@@ -19,7 +19,7 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
-		yaw += event.relative.x * 0.005
+		yaw -= event.relative.x * 0.005
 		pitch = clampf(pitch - event.relative.y * 0.005, -0.14, 1.1)
 
 func _process(delta: float) -> void:
