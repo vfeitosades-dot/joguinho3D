@@ -1,0 +1,149 @@
+name: Pátio 0.4.1 - corrigir braços e exportar Windows
+on:
+  push:
+    branches: [patio-arm-fix-v0.4.1]
+    paths: [.github/workflows/patio-arm-fix.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aplicar correção dos braços
+        run: |
+          echo 'fadb9b1320b2a474c7a474fa0d620331dfb3209d' | grep -Fx "$(git hash-object Patio-Godot.zip)"
+          unzip -q Patio-Godot.zip -d build
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('build/Patio/scripts/personagem.gd')
+          s = p.read_text()
+          s = s.replace('var duracao_corrida: float', 'var duracao_corrida: float\nvar esqueleto: Skeleton3D')
+          s = s.replace('func _ready() -> void:\n', 'func _ready() -> void:\n\tvar esqueletos := modelo.find_children("*", "Skeleton3D", true, false)\n\tif not esqueletos.is_empty():\n\t\tesqueleto = esqueletos[0] as Skeleton3D\n')
+          s = s.replace('\tmistura.advance(delta)\n', '\tmistura.advance(delta)\n\tcorrigir_bracos(corrida * movimento)\n')
+          s += """
+          
+          # Corrige somente a pose dos bracos apos a mistura das animacoes.
+          func corrigir_bracos(peso: float) -> void:
+          \tif esqueleto == null or peso < 0.001:
+          \t\treturn
+          \tvar eixos := esqueleto.global_transform.basis.orthonormalized().inverse() * modelo.global_transform.basis.orthonormalized()
+          \tvar cima := (eixos * Vector3.UP).normalized()
+          \tvar frente := (eixos * Vector3.BACK).normalized()
+          \tvar direita := (eixos * Vector3.RIGHT).normalized()
+          \tvar ombro_l := esqueleto.find_bone("upperarm_l")
+          \tvar ombro_r := esqueleto.find_bone("upperarm_r")
+          \tif ombro_l < 0 or ombro_r < 0:
+          \t\treturn
+          \tvar sinal_l := 1.0 if (esqueleto.get_bone_global_pose(ombro_l).origin - esqueleto.get_bone_global_pose(ombro_r).origin).dot(direita) > 0.0 else -1.0
+          \tfor sufixo in ["l", "r"]:
+          \t\tvar ombro := esqueleto.find_bone("upperarm_" + sufixo)
+          \t\tvar cotovelo := esqueleto.find_bone("lowerarm_" + sufixo)
+          \t\tvar mao := esqueleto.find_bone("hand_" + sufixo)
+          \t\tvar coxa := esqueleto.find_bone("thigh_" + sufixo)
+          \t\tvar joelho := esqueleto.find_bone("calf_" + sufixo)
+          \t\tif mini(mini(ombro, cotovelo), mini(mao, mini(coxa, joelho))) < 0:
+          \t\t\tcontinue
+          \t\tvar lado := direita * (sinal_l if sufixo == "l" else -sinal_l)
+          \t\t# A perna do mesmo lado determina o contrabalanco do braco.
+          \t\tvar perna := (esqueleto.get_bone_global_pose(joelho).origin - esqueleto.get_bone_global_pose(coxa).origin).normalized()
+          \t\tvar balanco := clampf(-perna.dot(frente) / 0.62, -1.0, 1.0)
+          \t\tvar direcao_braco := (-cima * 0.90 + frente * (0.53 * balanco - 0.09) + lado * 0.19).normalized()
+          \t\tvar direcao_antebraco := (frente * 0.88 + cima * (0.32 + 0.47 * balanco) + lado * 0.03).normalized()
+          \t\torientar_osso(ombro, cotovelo, direcao_braco, peso)
+          \t\torientar_osso(cotovelo, mao, direcao_antebraco, peso)
+          
+          func orientar_osso(osso: int, ponta: int, alvo: Vector3, peso: float) -> void:
+          \tvar pose := esqueleto.get_bone_global_pose(osso)
+          \tvar atual := esqueleto.get_bone_global_pose(ponta).origin - pose.origin
+          \tif atual.length_squared() < 0.00000001:
+          \t\treturn
+          \tvar ajuste := Quaternion(atual.normalized(), alvo)
+          \tvar pai := esqueleto.get_bone_parent(osso)
+          \tvar rot_pai := Quaternion.IDENTITY
+          \tif pai >= 0:
+          \t\trot_pai = esqueleto.get_bone_global_pose(pai).basis.orthonormalized().get_rotation_quaternion()
+          \tvar rot := esqueleto.get_bone_pose_rotation(osso)
+          \tvar desejada := (rot_pai.inverse() * ajuste * rot_pai * rot).normalized()
+          \tesqueleto.set_bone_pose_rotation(osso, rot.normalized().slerp(desejada, peso))
+          \tesqueleto.force_update_all_bone_transforms()
+          """
+          assert 'corrigir_bracos(corrida * movimento)' in s
+          p.write_text(s)
+          PY
+      - name: Instalar Godot 4.7 e template Windows
+        run: |
+          set -euo pipefail
+          base=https://github.com/godotengine/godot-builds/releases/download/4.7-stable
+          curl -fL --retry 3 "$base/Godot_v4.7-stable_linux.x86_64.zip" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          chmod +x /tmp/godot/Godot_v4.7-stable_linux.x86_64
+          sudo ln -s /tmp/godot/Godot_v4.7-stable_linux.x86_64 /usr/local/bin/godot
+          curl -fL --retry 3 "$base/Godot_v4.7-stable_export_templates.tpz" -o /tmp/templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.stable"
+          unzip -j /tmp/templates.tpz 'templates/windows_release_x86_64.exe' -d "$HOME/.local/share/godot/export_templates/4.7.stable"
+          godot --version
+      - name: Importar e testar corrida
+        run: |
+          set -euo pipefail
+          godot --headless --path build/Patio --editor --import --quit 2>&1 | tee /tmp/import.log
+          if grep -E 'SCRIPT ERROR|Parse Error' /tmp/import.log; then exit 1; fi
+          cat > build/Patio/teste_corrida.gd <<'GD'
+          extends SceneTree
+
+          func _initialize() -> void:
+              call_deferred("executar")
+
+          func executar() -> void:
+              var cena = load("res://patio.tscn").instantiate()
+              root.add_child(cena)
+              await process_frame
+              var ator = cena.get_node("Personagem")
+              ator.set_physics_process(false)
+              if ator.esqueleto == null:
+                  push_error("Esqueleto nao encontrado")
+                  quit(1)
+                  return
+              for nome in ["upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_l", "hand_r", "thigh_l", "thigh_r", "calf_l", "calf_r"]:
+                  if ator.esqueleto.find_bone(nome) < 0:
+                      push_error("Osso ausente: " + nome)
+                      quit(1)
+                      return
+              ator.velocidade = 5.24
+              for i in range(180):
+                  ator.animar(1.0 / 60.0)
+                  for nome in ["upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r"]:
+                      var rot = ator.esqueleto.get_bone_pose_rotation(ator.esqueleto.find_bone(nome))
+                      if not rot.is_finite():
+                          push_error("Rotacao invalida")
+                          quit(1)
+                          return
+              if ator.ritmo != "Corrida":
+                  push_error("Corrida nao atingida")
+                  quit(1)
+                  return
+              print("TESTE_CORRIDA_OK")
+              quit()
+          GD
+          godot --headless --path build/Patio --script res://teste_corrida.gd 2>&1 | tee /tmp/teste.log
+          grep -F TESTE_CORRIDA_OK /tmp/teste.log
+          if grep -E 'SCRIPT ERROR|Parse Error' /tmp/teste.log; then exit 1; fi
+          rm -f build/Patio/teste_corrida.gd build/Patio/teste_corrida.gd.uid
+      - name: Exportar EXE e projeto
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          godot --headless --path build/Patio --export-release "Windows Desktop" "$GITHUB_WORKSPACE/dist/Patio.exe"
+          test -s dist/Patio.exe
+          file dist/Patio.exe
+          cd build
+          zip -qr "$GITHUB_WORKSPACE/dist/Patio-Godot.zip" Patio -x 'Patio/.godot/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Patio-Windows-0.4.1
+          path: dist/*
+      - name: Publicar EXE em Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create patio-windows-0.4.1 dist/Patio.exe dist/Patio-Godot.zip --target "$GITHUB_SHA" --title 'Pátio 0.4.1 para Windows' --notes 'Ajuste dos ombros e cotovelos durante a corrida, com contrabalanço das pernas e transição suave. Projeto preservado.'
