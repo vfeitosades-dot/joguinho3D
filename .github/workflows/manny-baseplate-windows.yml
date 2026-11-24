@@ -35,13 +35,13 @@ jobs:
           version: 4.4.1
           use-dotnet: false
           include-templates: true
-      - name: Validar carregamento e cinco animacoes
+      - name: Validar carregamento e seis animacoes
         shell: bash
         run: |
           set -o pipefail
           godot --headless --path GODOT_BASEPLATE --editor --quit
           godot --headless --path GODOT_BASEPLATE --quit-after 120 2>&1 | tee /tmp/manny-test.log
-          grep -F 'MANNY_READY: 5 clips' /tmp/manny-test.log
+          grep -F 'MANNY_READY: 6 clips' /tmp/manny-test.log
       - name: Compilar para Windows
         run: |
           mkdir -p build/manny
@@ -57,11 +57,11 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v1
-          name: "Baseplate Manny - Windows 64 bits"
+          tag_name: baseplate-manny-v2
+          name: "Baseplate Manny v2 - locomocao humana"
           body: |
             Baseplate Godot com o modelo enviado, verificado por SHA-256.
-            Cinco animacoes proprias: Idle, Walk, Run, Jump e Fall. Nao sao animacoes oficiais da Unreal.
+            Seis animacoes proprias: Idle, Walk, Run, Jump, Fall e Land. Trajetorias de pes, IK analitica e velocidade sincronizada. Nao sao animacoes oficiais da Unreal.
             Modelo UE5 Male Mannequin - Manny - Web Ready, SketchPunk, licenca declarada CC BY 4.0.
             Fonte: https://sketchfab.com/3d-models/ue5-male-mannequin-manny-web-ready-9fcaadd206f449c2ab446d84350df370
             https://creativecommons.org/licenses/by/4.0/
