@@ -14,6 +14,8 @@ var contact_point: Vector3
 var contact_wall: Node3D
 var contact_local: Vector3
 var has_target: bool = false
+var grace: float = 0.0
+var reach: float = 0.0
 
 func setup(character: CharacterBody3D, visual: Node3D, model: Node) -> void:
 	actor = character
@@ -40,14 +42,15 @@ func setup(character: CharacterBody3D, visual: Node3D, model: Node) -> void:
 	marker.global_position = _bone_world(hand)
 	ik = SkeletonIK3D.new()
 	ik.name = "WallArmIK"
-	skeleton.add_child(ik)
 	ik.root_bone = skeleton.get_bone_name(shoulder)
 	ik.tip_bone = skeleton.get_bone_name(hand)
+	skeleton.add_child(ik)
 	ik.target_node = ik.get_path_to(marker)
 	ik.override_tip_basis = false
 	ik.max_iterations = 10
 	ik.min_distance = 0.008
 	ik.influence = 0.0
+	reach = _bone_world(shoulder).distance_to(_bone_world(elbow)) + _bone_world(elbow).distance_to(_bone_world(hand))
 	print("WALL_TOUCH_READY")
 
 func _find_skeleton(node: Node) -> Skeleton3D:
@@ -67,6 +70,7 @@ func release_now() -> void:
 	has_target = false
 	blend = 0.0
 	contact_wall = null
+	grace = 0.0
 	if ik != null:
 		ik.influence = 0.0
 		if ik.is_running():
@@ -79,7 +83,7 @@ func update_contact(delta: float, move_direction: Vector3) -> void:
 	forward.y = 0
 	forward = forward.normalized()
 	var shoulder_pos := _bone_world(shoulder)
-	var arm_length: float = shoulder_pos.distance_to(_bone_world(elbow)) + _bone_world(elbow).distance_to(_bone_world(hand))
+	var arm_length: float = maxf(reach, shoulder_pos.distance_to(_bone_world(elbow)) + _bone_world(elbow).distance_to(_bone_world(hand)))
 	var origin := Vector3(shoulder_pos.x, shoulder_pos.y - 0.12, shoulder_pos.z)
 	var ray := PhysicsRayQueryParameters3D.create(origin, origin + forward * maxf(0.45, arm_length + 0.16))
 	ray.exclude = [actor.get_rid()]
@@ -91,7 +95,7 @@ func update_contact(delta: float, move_direction: Vector3) -> void:
 		var normal: Vector3 = result["normal"]
 		var point: Vector3 = result["position"]
 		var wrist := point + normal * 0.075
-		if surface != null and surface.is_in_group("touch_wall") and absf(normal.y) < 0.15 and normal.dot(forward) < -0.65 and shoulder_pos.distance_to(wrist) < arm_length * 0.98 and (move_direction.length_squared() < 0.01 or move_direction.dot(forward) > 0.65):
+		if surface != null and surface.is_in_group("touch_wall") and absf(normal.y) < 0.15 and normal.dot(forward) < -0.65 and shoulder_pos.distance_to(wrist) < arm_length * (1.09 if has_target else 1.01) and (move_direction.length_squared() < 0.01 or move_direction.dot(forward) > 0.65):
 			valid = true
 			if not has_target or surface != contact_wall:
 				contact_wall = surface
@@ -102,6 +106,12 @@ func update_contact(delta: float, move_direction: Vector3) -> void:
 			if shoulder_pos.distance_to(old_point) > arm_length * 0.96:
 				contact_local = surface.to_local(wrist)
 			contact_point = surface.to_global(contact_local)
+	if valid:
+		grace = 0.15
+	else:
+		grace = maxf(0.0, grace - delta)
+		if has_target and is_instance_valid(contact_wall) and actor.is_on_floor() and not Input.is_action_pressed("sprint") and grace > 0.0 and shoulder_pos.distance_to(contact_point) < arm_length * 1.12 and (move_direction.length_squared() < 0.01 or move_direction.dot(forward) > 0.65):
+			valid = true
 	if valid:
 		marker.global_position = marker.global_position.lerp(contact_point, 1.0 - exp(-13.0 * delta))
 		if not ik.is_running():
