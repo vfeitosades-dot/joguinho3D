@@ -22,6 +22,23 @@ var shadow_mesh: MeshInstance3D
 var door: Node3D
 var door_angle: float = 0.0
 var door_goal: float = 0.0
+var road_velocity: Vector3 = Vector3.ZERO
+var wheelbase: float = 2.8
+var front_track: float = 1.6
+var yaw_rate: float = 0.0
+var throttle: float = 0.0
+var brake_pressure: float = 0.0
+var pitch_velocity: float = 0.0
+var roll_velocity: float = 0.0
+var heave_velocity: float = 0.0
+var wheel_positions: Array[Vector3] = []
+var wheel_roll: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var wheel_radius: float = 0.18
+var pedal_left: Vector3
+var pedal_right: Vector3
+var hip_anchor: Vector3
+var grip_left: Node3D
+var grip_right: Node3D
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
@@ -31,6 +48,10 @@ func setup(path: String, data: Dictionary) -> bool:
 	max_speed = data["top"]
 	acceleration = data["accel"]
 	seat = Vector3(data["seat_x"], data["seat_y"], data["seat_z"])
+	hip_anchor = Vector3(data["seat_x"], data["hip_y"], data["hip_z"])
+	pedal_left = Vector3(data["seat_x"] + 0.13, data["pedal_y"], data["pedal_z"])
+	pedal_right = Vector3(data["seat_x"] - 0.075, data["pedal_y"], data["pedal_z"])
+	wheel_radius = data["grip_radius"]
 	var doc := GLTFDocument.new()
 	var gltf := GLTFState.new()
 	var bytes := FileAccess.get_file_as_bytes(path)
@@ -51,6 +72,7 @@ func setup(path: String, data: Dictionary) -> bool:
 			return false
 		wheels.append(wheel)
 		wheel_bases.append(wheel.basis)
+		wheel_positions.append(wheel.position)
 	door = _part(model, "DriverDoorPivot")
 	if door == null:
 		push_error("Missing driver door " + title)
@@ -58,9 +80,13 @@ func setup(path: String, data: Dictionary) -> bool:
 	steering_wheel = _part(model, "Steering_Wheel")
 	if steering_wheel != null:
 		steering_basis = steering_wheel.basis
+		grip_left = _make_grip(Vector3(wheel_radius * 0.90, wheel_radius * 0.40, -0.024), "GripLeft")
+		grip_right = _make_grip(Vector3(-wheel_radius * 0.90, wheel_radius * 0.40, -0.024), "GripRight")
 	else:
 		push_warning("No steering node for " + title)
 	print("CAR_PARTS: ", title, " wheels=", wheels.size(), " steering=", steering_wheel != null)
+	wheelbase = maxf(1.8, absf((wheel_positions[0].z + wheel_positions[1].z - wheel_positions[2].z - wheel_positions[3].z) * 0.5))
+	front_track = absf(wheel_positions[0].x - wheel_positions[1].x)
 	var collider := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(width * 0.95, float(data["height"]) * 0.85, length * 0.95)
@@ -80,6 +106,23 @@ func setup(path: String, data: Dictionary) -> bool:
 	motor.volume_db = -18.0
 	add_child(motor)
 	return true
+
+func _make_grip(local_pos: Vector3, label: String) -> Node3D:
+	var grip := Node3D.new()
+	grip.name = label
+	steering_wheel.add_child(grip)
+	grip.position = local_pos
+	return grip
+
+func seat_world() -> Vector3:
+	return visual.to_global(hip_anchor)
+
+func pedal_world(right: bool) -> Vector3:
+	var local_pos := pedal_right if right else pedal_left
+	if right:
+		local_pos.z += throttle * 0.035
+		local_pos.y -= brake_pressure * 0.018
+	return visual.to_global(local_pos)
 
 func _part(node: Node, wanted: String) -> Node3D:
 	var key: String = String(node.name).to_lower().replace("_", "").replace(" ", "").replace("-", "")
@@ -137,44 +180,91 @@ func _physics_process(delta: float) -> void:
 	var gas: float = 0.0
 	var turn: float = 0.0
 	var braking: bool = false
-	if occupied and engine_on and not get_parent().get("menu_open"):
+	var enabled: bool = occupied and engine_on and not bool(get_parent().get("menu_open")) and not bool(get_parent().get("puzzle"))
+	if enabled:
 		gas = Input.get_axis("move_backward", "move_forward")
 		turn = Input.get_axis("move_right", "move_left")
 		braking = Input.is_action_pressed("jump")
 	var previous: float = speed
-	var goal: float = gas * (max_speed if gas >= 0.0 else 7.0)
-	var rate: float = acceleration if absf(gas) > 0.01 else 2.4
-	if speed * goal < 0.0:
-		rate = 9.5
-	if braking or not occupied:
-		goal = 0.0
-		rate = 13.0
-	speed = move_toward(speed, goal, rate * delta)
-	var angle: float = turn * lerpf(0.49, 0.14, clampf(absf(speed) / max_speed, 0.0, 1.0))
-	steer = move_toward(steer, angle, 3.0 * delta)
-	if absf(speed) > 0.10:
-		rotate_y(tan(steer) * speed / (length * 0.59) * delta)
 	var forward := global_transform.basis.z
-	velocity = forward * speed
+	var right_axis := global_transform.basis.x
+	speed = road_velocity.dot(forward)
+	var reverse_brake: bool = gas * speed < -0.4
+	throttle = move_toward(throttle, absf(gas) if not reverse_brake and not braking else 0.0, delta * 3.8)
+	brake_pressure = move_toward(brake_pressure, 1.0 if braking or reverse_brake or not enabled else 0.0, delta * 5.0)
+	var target_speed: float = gas * (max_speed if gas >= 0 else 6.0)
+	var drag: float = 0.38 + absf(speed) * 0.037 + speed * speed * 0.003
+	var traction: float = acceleration * (1.0 - 0.70 * clampf(absf(speed) / max_speed, 0.0, 1.0))
+	if brake_pressure > 0.02:
+		speed = move_toward(speed, 0.0, (10.5 * brake_pressure + drag) * delta)
+	elif absf(gas) > 0.01:
+		speed = move_toward(speed, target_speed, traction * throttle * delta)
+	else:
+		speed = move_toward(speed, 0.0, drag * delta)
+	var angle: float = turn * lerpf(0.54, 0.13, clampf(absf(speed) / max_speed, 0.0, 1.0))
+	steer = move_toward(steer, angle, delta * (2.1 if absf(turn) > 0.01 else 3.4))
+	var desired_yaw: float = tan(steer) * speed / wheelbase
+	# Cap lateral acceleration to a dry-road grip envelope; smooth inertia at turn-in.
+	var grip: float = 7.6 if not braking else 5.8
+	var limit: float = grip / maxf(absf(speed), 1.0)
+	desired_yaw = clampf(desired_yaw, -limit, limit) if absf(speed) > 0.15 else 0.0
+	yaw_rate = lerpf(yaw_rate, desired_yaw, 1.0 - exp(-7.0 * delta))
+	if absf(speed) < 0.12:
+		yaw_rate = 0.0
+	rotate_y(yaw_rate * delta)
+	forward = global_transform.basis.z
+	right_axis = global_transform.basis.x
+	# Preserve momentum sideways, then recover grip progressively instead of snapping heading.
+	var side_speed: float = road_velocity.dot(right_axis)
+	side_speed = move_toward(side_speed, 0.0, grip * delta)
+	road_velocity = forward * speed + right_axis * side_speed
+	if not enabled and road_velocity.length() < 0.10:
+		road_velocity = Vector3.ZERO
+	velocity = road_velocity
 	velocity.y = -1.5
 	move_and_slide()
 	for k in range(get_slide_collision_count()):
 		var collision := get_slide_collision(k)
-		if absf(collision.get_normal().y) < 0.35:
-			speed *= 0.23
+		var n := collision.get_normal()
+		if absf(n.y) < 0.35:
+			road_velocity = road_velocity.slide(n) * 0.48
+			yaw_rate *= 0.45
 	if absf(global_position.x) > 46.0 or absf(global_position.z) > 46.0:
 		global_position.x = clampf(global_position.x, -46.0, 46.0)
 		global_position.z = clampf(global_position.z, -46.0, 46.0)
-		speed = 0.0
-	roll = fposmod(roll + speed * delta / radius, TAU)
+		road_velocity = Vector3.ZERO
+	speed = road_velocity.dot(forward)
+	var longitudinal_accel: float = clampf((speed - previous) / maxf(delta, 0.001), -14.0, 9.0)
+	var lateral_accel: float = yaw_rate * speed
+	var pitch_goal: float = clampf(longitudinal_accel * 0.007, -0.085, 0.07)
+	var roll_goal: float = clampf(-lateral_accel * 0.012, -0.11, 0.11)
+	# Damped spring chassis animation; wheel centers remain at road height.
+	pitch_velocity += ((pitch_goal - visual.rotation.x) * 64.0 - pitch_velocity * 13.0) * delta
+	roll_velocity += ((roll_goal - visual.rotation.z) * 60.0 - roll_velocity * 12.0) * delta
+	visual.rotation.x += pitch_velocity * delta
+	visual.rotation.z += roll_velocity * delta
+	var heave_goal: float = -0.006 * absf(longitudinal_accel) - 0.003 * absf(lateral_accel)
+	heave_velocity += ((heave_goal - visual.position.y) * 95.0 - heave_velocity * 17.0) * delta
+	visual.position.y += heave_velocity * delta
 	for i in range(wheels.size()):
 		var side: float = 1.0 if i % 2 == 0 else -1.0
-		var yaw_amount: float = steer if i < 2 else 0.0
-		wheels[i].basis = Basis(Vector3.UP, yaw_amount) * wheel_bases[i] * Basis(Vector3.RIGHT, roll * side)
+		var yaw_amount: float = 0.0
+		if i < 2 and absf(steer) > 0.001:
+			var center_radius: float = wheelbase / tan(absf(steer))
+			var inner: bool = signf(steer) == side
+			yaw_amount = signf(steer) * atan(wheelbase / maxf(0.6, center_radius + (-0.5 if inner else 0.5) * front_track))
+		var linear: float = speed - yaw_rate * wheel_positions[i].x
+		wheel_roll[i] = fposmod(wheel_roll[i] + linear * delta / radius, TAU)
+		wheels[i].position = visual.transform.affine_inverse() * wheel_positions[i]
+		wheels[i].basis = visual.basis.inverse() * Basis(Vector3.UP, yaw_amount) * wheel_bases[i] * Basis(Vector3.RIGHT, wheel_roll[i] * side)
 	if steering_wheel != null:
-		steering_wheel.basis = steering_basis * Basis(Vector3.FORWARD, -steer * 3.6)
-	visual.rotation.z = lerpf(visual.rotation.z, -steer * absf(speed) * 0.007, minf(1.0, delta * 5.0))
-	visual.rotation.x = lerpf(visual.rotation.x, (speed - previous) * 0.06, minf(1.0, delta * 6.0))
+		steering_wheel.basis = steering_basis * Basis(Vector3.FORWARD, -steer * 3.0)
 	if motor != null and engine_on:
-		motor.pitch_scale = 0.7 + absf(speed) / max_speed * 1.0 + absf(gas) * 0.14
-		motor.volume_db = -22.0 + absf(gas) * 9.0
+		motor.pitch_scale = 0.70 + absf(speed) / max_speed * 0.95 + throttle * 0.20
+		motor.volume_db = -23.0 + throttle * 10.0
+
+func reset_motion() -> void:
+	speed = 0.0
+	road_velocity = Vector3.ZERO
+	velocity = Vector3.ZERO
+	yaw_rate = 0.0

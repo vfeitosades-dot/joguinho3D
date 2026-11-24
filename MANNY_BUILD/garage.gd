@@ -36,6 +36,8 @@ var menu: Control
 var play_button: Button
 var quality_select: OptionButton
 var testing: bool = false
+var seating_weight: float = 0.0
+var seated_scale: float = 0.88
 
 
 func _ready() -> void:
@@ -103,24 +105,66 @@ func _test() -> void:
 	if cars.size() != 7:
 		get_tree().quit(1)
 		return
+	var gesture := player.get("wall_touch") as Node
+	if gesture == null or gesture.get("ik") == null:
+		get_tree().quit(5)
+		return
+	# Test seat and wheel anchors on all seven cars.
+	for car in cars:
+		player.global_position = car.to_global(Vector3(1.7, 0.04, 0))
+		_enter(car, true)
+		for i in range(22):
+			await get_tree().physics_frame
+			await get_tree().process_frame
+		if car.get("grip_left") == null or car.get("grip_right") == null:
+			get_tree().quit(10)
+			return
+		var hip: Vector3 = gesture.call("hips_world")
+		var anchor: Vector3 = car.call("seat_world")
+		if hip.distance_to(anchor) > 0.16:
+			push_error("Seat alignment failed: " + str(hip.distance_to(anchor)))
+			get_tree().quit(11)
+			return
+		var arms: Array = gesture.get("solvers")
+		if arms.size() != 2 or arms[0].influence < 0.1 or arms[1].influence < 0.1:
+			get_tree().quit(12)
+			return
+		_exit(true)
+	print("SEATING_TEST_OK")
 	player.global_position = cars[0].to_global(Vector3(1.7, 0.04, 0))
 	_enter(cars[0], true)
 	for i in range(3):
 		pulse = targets[stage]
 		_press_puzzle()
 	if active == null or not bool(active.get("engine_on")):
-		push_error("Garage ignition state failed")
 		get_tree().quit(2)
 		return
 	Input.action_press("move_forward")
-	for i in range(18):
+	for i in range(48):
 		await get_tree().physics_frame
-	Input.action_release("move_forward")
-	if float(active.get("speed")) <= 0.1:
+	if float(active.get("speed")) <= 0.5:
 		get_tree().quit(3)
 		return
-	active.set("speed", 0.0)
+	var before_yaw: float = active.rotation.y
+	Input.action_press("move_left")
+	for i in range(25):
+		await get_tree().physics_frame
+	Input.action_release("move_left")
+	Input.action_release("move_forward")
+	if absf(angle_difference(before_yaw, active.rotation.y)) < 0.02:
+		get_tree().quit(13)
+		return
+	var before_brake: float = absf(float(active.get("speed")))
+	Input.action_press("jump")
+	for i in range(48):
+		await get_tree().physics_frame
+	Input.action_release("jump")
+	if absf(float(active.get("speed"))) >= before_brake * 0.8:
+		get_tree().quit(14)
+		return
+	active.call("reset_motion")
 	_exit(true)
+	print("DRIVING_PHYSICS_TEST_OK")
 	if active != null or not player.is_physics_processing():
 		get_tree().quit(4)
 		return
@@ -137,27 +181,26 @@ func _test() -> void:
 		car.call("set_door", false)
 	print("DOORS_TEST_OK")
 	print("GARAGE_TEST_OK")
-	var gesture := player.get("wall_touch") as Node
-	if gesture == null or gesture.get("ik") == null:
-		push_error("Wall gesture not initialized")
-		get_tree().quit(5)
-		return
-	player.global_position = Vector3(0, 0.04, -12.38)
 	var body := player.get("_body_visual") as Node3D
-	body.rotation.y = -PI / 2.0
-	gesture.set("heading", Vector3.RIGHT)
-	for i in range(48):
-		await get_tree().physics_frame
-	if not bool(gesture.get("active_contact")) or float(gesture.get("blend")) < 0.75:
-		push_error("Wall contact not detected: " + str(gesture.get("blend")))
-		get_tree().quit(6)
-		return
-	player.global_position = Vector3(0, 0.04, -10.0)
-	for i in range(30):
-		await get_tree().physics_frame
-	if float(gesture.get("blend")) > 0.01:
-		get_tree().quit(7)
-		return
+	# Wall on right when facing -X, and on left when facing +X.
+	for side in range(2):
+		gesture.call("release_now")
+		player.global_position = Vector3(0, 0.04, -12.38)
+		body.rotation.y = PI / 2.0 if side == 0 else -PI / 2.0
+		gesture.set("heading", Vector3.LEFT if side == 0 else Vector3.RIGHT)
+		for i in range(48):
+			await get_tree().physics_frame
+		var amounts: Array = gesture.get("hand_blends")
+		if float(amounts[side]) < 0.70 or float(amounts[1 - side]) > 0.05:
+			push_error("Independent hand failed: " + str(amounts))
+			get_tree().quit(6)
+			return
+		player.global_position = Vector3(0, 0.04, -10.0)
+		for i in range(36):
+			await get_tree().physics_frame
+		if float(gesture.get("blend")) > 0.01:
+			get_tree().quit(7)
+			return
 	print("WALL_TOUCH_TEST_OK")
 	get_tree().quit()
 
@@ -438,8 +481,15 @@ func _process(delta: float) -> void:
 		fps_label.text = "%d FPS   |   F1: %s" % [Engine.get_frames_per_second(), ["540p", "720p", "1080p"][quality]]
 	if active != null:
 		if not locked:
-			player.global_position = active.to_global(active.get("seat"))
 			player.global_rotation = active.global_rotation
+			var visual_body := player.get("_body_visual") as Node3D
+			var car_visual := active.get("visual") as Node3D
+			visual_body.rotation.x = -car_visual.rotation.x
+			visual_body.rotation.z = -car_visual.rotation.z
+			var rig := player.get("wall_touch") as Node
+			seating_weight = move_toward(seating_weight, 1.0, delta * 3.0)
+			rig.call("align_hips", active.call("seat_world"), 1.0)
+			rig.call("drive_pose", active, delta, seating_weight)
 		speed_label.text = "%02d  km/h" % int(absf(float(active.get("speed"))) * 3.6)
 		status_label.text = str(active.get("title")) + ("  /  ON" if active.get("engine_on") else "  /  OFF")
 		hint.text = "WASD dirigir  |  ESPAÇO freio  |  E sair" if not puzzle else "Ativação do veículo"
@@ -492,33 +542,73 @@ func _input(event: InputEvent) -> void:
 		_press_puzzle()
 		get_viewport().set_input_as_handled()
 
+func _clip_duration(name: String, fallback: float) -> float:
+	var anim := player.get("_anim") as AnimationPlayer
+	var clips: Dictionary = player.get("_clips")
+	if anim == null or not clips.has(name):
+		return fallback
+	return clampf(anim.get_animation(clips[name]).length, 0.5, 2.5)
+
 func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 	active = car
 	locked = true
+	seating_weight = 0.0
 	player.set_physics_process(false)
 	player.velocity = Vector3.ZERO
 	player.collision_layer = 0
 	player.collision_mask = 0
-	player.global_rotation = car.global_rotation
 	var body := player.get("_body_visual") as Node3D
-	body.rotation.y = PI
-	car.call("set_door", true)
-	var destination: Vector3 = car.to_global(car.get("seat"))
+	var rig := player.get("wall_touch") as Node
+	rig.call("release_now")
+	car.call("reset_motion")
+	var anchor: Vector3 = car.get("hip_anchor")
+	var approach: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.43, 0.04, anchor.z + 0.12))
+	var sill: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.35, 0.15, anchor.z))
+	var destination: Vector3 = car.call("seat_world")
 	if not immediate:
-		var approach := car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.45, 0.04, float(car.get("seat").z)))
-		var tween := create_tween()
-		tween.tween_property(player, "global_position", approach, 0.35).set_trans(Tween.TRANS_SINE)
-		await tween.finished
+		var heading: Vector3 = (approach - player.global_position).normalized()
+		player.call("_play", "walk")
+		var target_yaw: float = atan2(-heading.x, -heading.z)
+		var walk := create_tween().set_parallel(true)
+		walk.tween_property(player, "global_position", approach, clampf(player.global_position.distance_to(approach) / 1.6, 0.22, 1.4)).set_trans(Tween.TRANS_SINE)
+		walk.tween_property(body, "rotation:y", body.rotation.y + angle_difference(body.rotation.y, target_yaw), 0.24)
+		await walk.finished
+		player.call("_play", "idle")
+		car.call("set_door", true)
+		await get_tree().create_timer(0.30).timeout
+		player.global_rotation = car.global_rotation
+		body.rotation.y = PI / 2.0
 		player.call("_play", "enter")
-		var sit := create_tween().set_parallel(true)
-		sit.tween_property(player, "global_position", destination, 0.85).set_trans(Tween.TRANS_SINE)
-		sit.tween_property(body, "scale", Vector3.ONE * 0.90, 0.85)
-		await sit.finished
+		var duration: float = _clip_duration("enter", 1.1)
+		var start_hips: Vector3 = rig.call("hips_world")
+		var bend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		bend.tween_property(player, "global_position", sill, duration * 0.40)
+		bend.parallel().tween_property(body, "rotation:y", PI, duration * 0.72)
+		bend.parallel().tween_property(body, "scale", Vector3.ONE * seated_scale, duration * 0.80)
+		await bend.finished
+		var settle := create_tween()
+		settle.tween_method(func(t: float):
+			var hips: Vector3 = rig.call("hips_world")
+			var desired: Vector3 = hips.lerp(destination, t)
+			rig.call("align_hips", desired, 1.0), 0.0, 1.0, duration * 0.35)
+		await settle.finished
 	else:
-		player.global_position = destination
-		body.scale = Vector3.ONE * 0.90
-	car.call("set_door", false)
+		car.call("set_door", true)
+		player.global_rotation = car.global_rotation
+		body.rotation.y = PI
+		body.scale = Vector3.ONE * seated_scale
+		player.global_position = car.to_global(car.get("seat"))
 	player.call("_play", "drive")
+	var anim := player.get("_anim") as AnimationPlayer
+	if anim != null:
+		anim.advance(0.0)
+	rig.call("align_hips", destination, 1.0)
+	if not immediate:
+		for i in range(12):
+			await get_tree().physics_frame
+			rig.call("align_hips", car.call("seat_world"), 1.0)
+			rig.call("drive_pose", car, 1.0 / 60.0, float(i + 1) / 12.0)
+	car.call("set_door", false)
 	camera.set("target", car)
 	camera.set("distance", 6.1)
 	camera.set("yaw", car.rotation.y + PI)
@@ -539,20 +629,27 @@ func _exit(immediate: bool = false) -> void:
 	puzzle = false
 	puzzle_panel.hide()
 	car.set("occupied", false)
+	car.call("reset_motion")
 	car.call("stop_engine")
 	car.call("set_door", true)
-	player.call("_play", "exit")
 	var body := player.get("_body_visual") as Node3D
-	var exit_pos: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.78, 0.04, 0.0))
+	var rig := player.get("wall_touch") as Node
+	rig.call("release_now")
+	var anchor: Vector3 = car.get("hip_anchor")
+	var exit_pos: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.65, 0.04, anchor.z))
 	if not immediate:
-		var tween := create_tween()
-		tween.set_parallel(true)
-		tween.tween_property(player, "global_position", exit_pos, 0.85).set_trans(Tween.TRANS_SINE)
-		tween.tween_property(body, "scale", Vector3.ONE, 0.85)
+		await get_tree().create_timer(0.28).timeout
+		player.call("_play", "exit")
+		var duration: float = _clip_duration("exit", 1.0)
+		var tween := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(player, "global_position", exit_pos, duration)
+		tween.tween_property(body, "scale", Vector3.ONE, duration * 0.85)
+		tween.tween_property(body, "rotation:y", PI / 2.0, duration * 0.8)
 		await tween.finished
 	else:
 		player.global_position = exit_pos
 	body.scale = Vector3.ONE
+	body.rotation = Vector3(0.0, car.rotation.y + PI / 2.0, 0.0)
 	car.call("set_door", false)
 	active = null
 	player.global_rotation = Vector3.ZERO
@@ -563,6 +660,7 @@ func _exit(immediate: bool = false) -> void:
 	camera.set("target", player)
 	camera.set("distance", 4.0)
 	locked = false
+	seating_weight = 0.0
 
 func _update_puzzle() -> void:
 	puzzle_title.text = "ATIVAÇÃO   %d / 3" % (stage + 1)

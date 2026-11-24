@@ -14,6 +14,13 @@ var grace: float = 0.0
 var normal: Vector3 = Vector3.ZERO
 var point: Vector3
 var heading: Vector3 = Vector3.FORWARD
+var hand_blends: Array[float] = [0.0, 0.0]
+var hand_grace: Array[float] = [0.0, 0.0]
+var targets: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var pelvis: int = -1
+var leg_solvers: Array[SkeletonIK3D] = []
+var leg_markers: Array[Node3D] = []
+var feet: Array[int] = []
 
 func setup(character: CharacterBody3D, visual: Node3D, model: Node) -> void:
 	actor = character
@@ -49,7 +56,31 @@ func setup(character: CharacterBody3D, visual: Node3D, model: Node) -> void:
 		hands.append(hand)
 		reaches.append(_world(upper).distance_to(_world(lower)) + _world(lower).distance_to(_world(hand)))
 	ik = solvers[0]
-	print("WALL_TOUCH_READY: 2 hands")
+	pelvis = _bone("pelvis")
+	for side in ["r", "l"]:
+		var thigh: int = _bone("thigh_" + side)
+		var foot: int = _bone("foot_" + side)
+		if thigh < 0 or foot < 0:
+			continue
+		var target := Node3D.new()
+		target.name = "FootTarget_" + side
+		actor.add_child(target)
+		target.top_level = true
+		target.global_position = _world(foot)
+		var solver := SkeletonIK3D.new()
+		solver.name = "PedalIK_" + side
+		solver.root_bone = skeleton.get_bone_name(thigh)
+		solver.tip_bone = skeleton.get_bone_name(foot)
+		skeleton.add_child(solver)
+		solver.target_node = solver.get_path_to(target)
+		solver.override_tip_basis = false
+		solver.max_iterations = 10
+		solver.min_distance = 0.012
+		solver.influence = 0.0
+		leg_solvers.append(solver)
+		leg_markers.append(target)
+		feet.append(foot)
+	print("WALL_TOUCH_READY: independent arms, seated IK")
 
 func _bone(prefix: String) -> int:
 	for i in range(skeleton.get_bone_count()):
@@ -73,8 +104,13 @@ func _world(index: int) -> Vector3:
 func release_now() -> void:
 	active_contact = false
 	blend = 0.0
-	grace = 0.0
+	hand_blends = [0.0, 0.0]
+	hand_grace = [0.0, 0.0]
 	for solver in solvers:
+		solver.influence = 0.0
+		if solver.is_running():
+			solver.stop()
+	for solver in leg_solvers:
 		solver.influence = 0.0
 		if solver.is_running():
 			solver.stop()
@@ -86,50 +122,80 @@ func update_contact(delta: float, direction: Vector3) -> void:
 		heading = direction.normalized()
 	elif blend < 0.01:
 		heading = -body.global_transform.basis.z.normalized()
-	var lateral: Vector3 = heading.cross(Vector3.UP).normalized()
-	var valid: bool = false
-	if actor.is_on_floor() and actor.velocity.y < 0.5 and not Input.is_action_pressed("sprint"):
-		var origin := actor.global_position + Vector3.UP * 1.12
-		for sign_value in [-1.0, 1.0]:
-			var ray := PhysicsRayQueryParameters3D.create(origin, origin + lateral * float(sign_value) * 0.73)
+	var right_axis: Vector3 = heading.cross(Vector3.UP).normalized()
+	var grounded: bool = actor.is_on_floor() and actor.velocity.y < 0.5 and not Input.is_action_pressed("sprint")
+	active_contact = false
+	for i in range(2):
+		var side: Vector3 = right_axis if i == 0 else -right_axis
+		var valid: bool = false
+		var shoulder_pos := _world(shoulders[i])
+		if grounded:
+			var origin := actor.global_position + Vector3.UP * 1.12
+			var ray := PhysicsRayQueryParameters3D.create(origin, origin + side * 0.76)
 			ray.exclude = [actor.get_rid()]
 			var hit := actor.get_world_3d().direct_space_state.intersect_ray(ray)
-			if hit.is_empty():
-				continue
-			var surface := hit["collider"] as Node3D
-			var n: Vector3 = hit["normal"]
-			if surface != null and surface.is_in_group("touch_wall") and absf(n.y) < 0.15 and absf(n.dot(heading)) < 0.45:
-				normal = n
-				point = hit["position"]
-				valid = true
-				break
-	if valid:
-		grace = 0.14
-	else:
-		grace = maxf(0.0, grace - delta)
-		valid = grace > 0.0 and actor.is_on_floor() and not Input.is_action_pressed("sprint")
-	if valid:
-		# Keep the walking direction parallel to the wall; rotate upper body partly toward it.
-		var facing := (heading * 0.66 - normal * 0.75).normalized()
-		body.rotation.y = lerp_angle(body.rotation.y, atan2(-facing.x, -facing.z), 1.0 - exp(-9.0 * delta))
-		for i in range(2):
-			var shoulder := _world(shoulders[i])
-			var target: Vector3 = shoulder - normal * ((shoulder - point).dot(normal) - 0.075)
-			target.y = actor.global_position.y + 1.15 + float(i) * 0.07
-			target += heading * (0.18 if i == 0 else -0.18)
-			var offset := target - shoulder
-			if offset.length() > reaches[i] * 0.98:
-				target = shoulder + offset.normalized() * reaches[i] * 0.98
-			if not solvers[i].is_running():
-				markers[i].global_position = _world(hands[i])
-				solvers[i].start()
-			markers[i].global_position = markers[i].global_position.lerp(target, 1.0 - exp(-12.0 * delta))
-		blend = move_toward(blend, 1.0, delta / 0.30)
-	else:
-		blend = move_toward(blend, 0.0, delta / 0.25)
-		if blend <= 0.0:
-			release_now()
-			return
-	active_contact = valid
-	for solver in solvers:
-		solver.influence = blend * blend * (3.0 - 2.0 * blend)
+			if not hit.is_empty():
+				var surface := hit["collider"] as Node3D
+				var n: Vector3 = hit["normal"]
+				if surface != null and surface.is_in_group("touch_wall") and absf(n.y) < 0.15 and n.dot(side) < -0.70:
+					var point_on_wall: Vector3 = hit["position"]
+					var target: Vector3 = shoulder_pos - n * ((shoulder_pos - point_on_wall).dot(n) - 0.065)
+					target.y = actor.global_position.y + 1.10
+					target += heading * 0.13
+					var offset := target - shoulder_pos
+					if offset.length() <= reaches[i] * 1.10:
+						targets[i] = shoulder_pos + offset.limit_length(reaches[i] * 0.98)
+						valid = true
+		if valid:
+			hand_grace[i] = 0.12
+		else:
+			hand_grace[i] = maxf(0.0, hand_grace[i] - delta)
+			valid = grounded and hand_grace[i] > 0.0 and shoulder_pos.distance_to(targets[i]) < reaches[i] * 1.12
+		if valid:
+			active_contact = true
+			hand_blends[i] = move_toward(hand_blends[i], 1.0, delta / 0.26)
+			_set_arm(i, targets[i], hand_blends[i], delta)
+		else:
+			hand_blends[i] = move_toward(hand_blends[i], 0.0, delta / 0.23)
+			if hand_blends[i] <= 0.0:
+				solvers[i].influence = 0.0
+				if solvers[i].is_running():
+					solvers[i].stop()
+			else:
+				solvers[i].influence = _ease(hand_blends[i])
+	blend = maxf(hand_blends[0], hand_blends[1])
+
+func _ease(x: float) -> float:
+	return x * x * (3.0 - 2.0 * x)
+
+func _set_arm(index: int, target: Vector3, amount: float, delta: float) -> void:
+	if not solvers[index].is_running():
+		markers[index].global_position = _world(hands[index])
+		solvers[index].start()
+	markers[index].global_position = markers[index].global_position.lerp(target, 1.0 - exp(-18.0 * delta))
+	solvers[index].influence = _ease(amount)
+
+func align_hips(target: Vector3, amount: float) -> void:
+	if pelvis < 0:
+		return
+	actor.global_position += (target - _world(pelvis)) * amount
+
+func hips_world() -> Vector3:
+	return _world(pelvis) if pelvis >= 0 else actor.global_position
+
+func drive_pose(car: Node3D, delta: float, amount: float = 1.0) -> void:
+	if solvers.size() != 2:
+		return
+	var left := car.get("grip_left") as Node3D
+	var right := car.get("grip_right") as Node3D
+	if left == null or right == null:
+		return
+	_set_arm(0, right.global_position, amount, delta)
+	_set_arm(1, left.global_position, amount, delta)
+	for i in range(leg_solvers.size()):
+		if not leg_solvers[i].is_running():
+			leg_markers[i].global_position = _world(feet[i])
+			leg_solvers[i].start()
+		var target: Vector3 = car.call("pedal_world", i == 0)
+		leg_markers[i].global_position = leg_markers[i].global_position.lerp(target, 1.0 - exp(-15.0 * delta))
+		leg_solvers[i].influence = _ease(amount) * 0.85

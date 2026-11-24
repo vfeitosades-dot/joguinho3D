@@ -46,6 +46,14 @@ def compact_glb(raw,name):
     encoded+=b" "*((-len(encoded))%4)
     return struct.pack("<4sII",b"glTF",2,12+8+len(encoded)+8+len(payload))+struct.pack("<I4s",len(encoded),b"JSON")+encoded+struct.pack("<I4s",len(payload),b"BIN\x00")+payload
 
+fitting={
+"sport-sedan":(.615,-.25,.35,.76,.180),
+"grand-tourer":(.545,-.29,.30,.72,.178),
+"muscle-coupe":(.570,-.29,.30,.72,.184),
+"hot-hatchback":(.615,-.17,.32,.74,.180),
+"electric-fastback":(.635,-.16,.35,.82,.178),
+"luxury-suv":(.875,-.13,.53,.84,.190),
+"luxury-limousine":(.690,.12,.36,1.15,.200)}
 catalog=[]
 for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     url="https://models.vinish.dev/realistic-cars/"+name+".glb"
@@ -53,7 +61,8 @@ for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     raw=urllib.request.urlopen(req,timeout=120).read()
     assert hashlib.sha256(raw).hexdigest()==sha, "Asset differs from uploaded model: "+name
     (assets/(name+".glbdata")).write_bytes(compact_glb(raw,name))
-    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz))
+    hy,hz,py,pz,gr=fitting[name]
+    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz,hip_y=hy,hip_z=hz,pedal_y=py,pedal_z=pz,grip_radius=gr))
     print("VERIFIED",name,len(raw))
 (assets/"catalog.json").write_text(json.dumps(catalog))
 rng=np.random.default_rng(4242)
