@@ -117,7 +117,7 @@ def sample_channel(a,c,times):
     return np.stack([np.interp(tt,ts,vals[:,k]) for k in range(vals.shape[1])],axis=1)
 hip=T["pelvis"]; sh=S["pelvis"]
 ratio=tw[hip][1,3]/sw[sh][1,3]
-clips={"Idle":"Idle_Loop","Walk":"Walk_Loop","Run":"Jog_Fwd_Loop","Jump":"Jump_Start","Fall":"Jump_Loop","Land":"Jump_Land"}
+clips={"Idle":"Idle_Loop","Walk":"Walk_Loop","Run":"Jog_Fwd_Loop","Jump":"Jump_Start","Fall":"Jump_Loop","Land":"Jump_Land","Enter":"Sitting_Enter","Drive":"Driving_Loop","Exit":"Sitting_Exit"}
 library={a["name"]:a for a in sj["animations"]}
 ids=sorted(mapping)
 for name,original in clips.items():
@@ -170,12 +170,12 @@ for name,original in clips.items():
         samplers.append({"input":inp,"output":out,"interpolation":"LINEAR"})
     for i in ids:
         q=np.array(frames[i])
-        if name in ("Idle","Walk","Run","Fall"): q[-1]=q[0]
+        if name in ("Idle","Walk","Run","Fall","Drive"): q[-1]=q[0]
         for k in range(1,len(q)):
             if np.dot(q[k-1],q[k])<0:q[k]*=-1
         assert np.isfinite(q).all() and len(q)==len(times)
         track(i,"rotation",q,"VEC4")
-    if name in ("Idle","Walk","Run","Fall"): hips[-1]=hips[0]
+    if name in ("Idle","Walk","Run","Fall","Drive"): hips[-1]=hips[0]
     track(hip,"translation",np.array(hips),"VEC3")
     j.setdefault("animations",[]).append({"name":name,"channels":channels,"samplers":samplers})
     print("UAL retarget:",original,"->",name,"bones",len(ids),"frames",len(times))
@@ -239,14 +239,14 @@ func _ready() -> void:
 		return
 	for clip: StringName in _anim.get_animation_list():
 		var lower: String = String(clip).to_lower()
-		for key: String in ["idle", "walk", "run", "jump", "fall", "land"]:
+		for key: String in ["idle", "walk", "run", "jump", "fall", "land", "enter", "drive", "exit"]:
 			if lower == key or lower.ends_with("/" + key):
 				_clips[key] = clip
 				var anim: Animation = _anim.get_animation(clip)
-				anim.loop_mode = Animation.LOOP_LINEAR if key in ["idle", "walk", "run", "fall"] else Animation.LOOP_NONE
+				anim.loop_mode = Animation.LOOP_LINEAR if key in ["idle", "walk", "run", "fall", "drive"] else Animation.LOOP_NONE
 	_play("idle")
-	if _clips.size() == 6:
-		print("MANNY_READY: 6 clips")
+	if _clips.size() == 9:
+		print("MANNY_READY: 9 clips")
 	else:
 		push_error("Manny: faltam clipes: " + str(_clips))
 
