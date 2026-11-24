@@ -27,7 +27,7 @@ jobs:
           python-version: '3.11'
       - name: Verificar modelo e criar animacoes
         run: |
-          python -m pip install numpy scipy
+          python -m pip install numpy scipy pillow
           python MANNY_BUILD/prepare.py
           python MANNY_BUILD/garage.py
       - name: Instalar Godot
@@ -46,35 +46,59 @@ jobs:
           grep -F 'GARAGE_READY: 7 cars' /tmp/manny-test.log
           grep -F 'GARAGE_TEST_OK' /tmp/manny-test.log
           grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-test.log
+      - name: Validar renderizador OpenGL com tela virtual
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          MESA_GL_VERSION_OVERRIDE: "3.3"
+        run: |
+          set -o pipefail
+          xvfb-run -a godot --path GODOT_BASEPLATE --rendering-method gl_compatibility --audio-driver Dummy --quit-after 1800 -- --garage-test 2>&1 | tee /tmp/manny-graphics.log
+          grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-graphics.log
       - name: Compilar para Windows
         run: |
           mkdir -p build/manny
           godot --headless --path GODOT_BASEPLATE --export-release "Windows Desktop" "$GITHUB_WORKSPACE/build/manny/Baseplate_Manny.exe"
           test -s build/manny/Baseplate_Manny.exe
           cp GODOT_BASEPLATE/CREDITS.txt build/manny/CREDITS.txt
+          printf '@echo off\r\ncd /d "%%~dp0"\r\nBaseplate_Manny.exe --rendering-method gl_compatibility --rendering-driver opengl3 --log-file "motorlab-log.txt"\r\npause\r\n' > build/manny/Diagnostico.bat
       - name: Publicar artefato
         uses: actions/upload-artifact@v4
         with:
           name: Baseplate-Manny-Windows
           path: build/manny/
           if-no-files-found: error
+  verify-windows:
+    needs: windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Baseplate-Manny-Windows
+          path: build/manny
+      - name: Validar executavel Windows exportado
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath (Resolve-Path "build/manny/Baseplate_Manny.exe") -ArgumentList @("--headless","--log-file","motorlab-test.log","--quit-after","1800","--","--garage-test") -Wait -PassThru
+          Get-Content motorlab-test.log
+          if ($p.ExitCode -ne 0) { throw "EXE exit code $($p.ExitCode)" }
+          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","GARAGE_TEST_OK","WALL_TOUCH_TEST_OK")) {
+            if (-not (Select-String -Path motorlab-test.log -SimpleMatch $marker -Quiet)) { throw "Missing $marker" }
+          }
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v5-wall
-          name: "Motor Lab v5 - Interacao com parede"
+          tag_name: baseplate-manny-v6-compat
+          name: "Motor Lab V6 - Compatibilidade"
           body: |
-            Baseplate Godot com o modelo enviado, verificado por SHA-256.
-            Seis clipes do pack Universal Animation Library Standard de Quaternius (CC0), adaptados ao esqueleto Manny: Idle, Walk, Run, Jump, Fall, Land. Fonte: https://quaternius.itch.io/universal-animation-library
-            Modelo UE5 Male Mannequin - Manny - Web Ready, SketchPunk, licenca declarada CC BY 4.0.
-            Fonte: https://sketchfab.com/3d-models/ue5-male-mannequin-manny-web-ready-9fcaadd206f449c2ab446d84350df370
-            https://creativecommons.org/licenses/by/4.0/
-            Design Manny e Unreal Engine: Epic Games.
-            Alteracoes: animacoes e ajuste de escala/orientacao.
-            Sete carros vinish.dev, CC BY 4.0, SHA-256 conferido com os arquivos enviados. Rodas e volante animados, movimento, ativacao ficticia, perfis de qualidade. Sem ray tracing real.\n            Animacoes adicionais: Sitting Enter, Driving Loop, Sitting Exit (Quaternius CC0).
-            Interacao ambiental: gesto de apoio da mao na parede de teste, com IK e transicoes suaves.\n            Veja CREDITS.txt.
+            Carregamento gradual, materiais leves e modo OpenGL Compatibility por padrao.
+            Sete carros, nove animacoes do Manny e interacao ambiental com parede.
+            Testes de renderizacao OpenGL em Linux e executavel Windows headless.
+            Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.
           files: |
             build/manny/Baseplate_Manny.exe
             build/manny/CREDITS.txt
+            build/manny/Diagnostico.bat
           fail_on_unmatched_files: true
           make_latest: false

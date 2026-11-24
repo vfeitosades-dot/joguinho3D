@@ -29,6 +29,9 @@ var quality: int = 0
 var sun: DirectionalLight3D
 var world_env: WorldEnvironment
 var perf_timer: float = 0.0
+var loading: bool = true
+var sky_quality: Sky
+
 
 func _ready() -> void:
 	_create_world()
@@ -45,8 +48,23 @@ func _ready() -> void:
 	camera.current = true
 	add_child(camera)
 	_create_ui()
-	var catalog: Array = JSON.parse_string(FileAccess.get_file_as_string(DATA_PATH))
+	_apply_quality(0)
+	player.set_physics_process(false)
+	_load_cars.call_deferred()
+
+func _load_cars() -> void:
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string(DATA_PATH))
+	if not raw is Array:
+		loading = false
+		player.set_physics_process(true)
+		push_error("GARAGE_CATALOG_MISSING")
+		return
+	var catalog: Array = raw
 	for i in range(catalog.size()):
+		hint.text = "Carregando veículos %d / %d" % [i + 1, catalog.size()]
+		for frame in range(3):
+			await get_tree().process_frame
+		print("CAR_LOADING: ", catalog[i]["file"])
 		var data: Dictionary = catalog[i]
 		var car := CharacterBody3D.new()
 		car.set_script(CAR_SCRIPT)
@@ -57,7 +75,8 @@ func _ready() -> void:
 			cars.append(car)
 		else:
 			car.queue_free()
-	_apply_quality(0)
+	loading = false
+	player.set_physics_process(true)
 	if cars.size() == 7:
 		print("GARAGE_READY: 7 cars")
 	else:
@@ -138,20 +157,11 @@ func _create_wall() -> void:
 func _create_world() -> void:
 	world_env = WorldEnvironment.new()
 	var env := Environment.new()
-	var sky := Sky.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.19, 0.40, 0.69)
-	sky_mat.sky_horizon_color = Color(0.76, 0.86, 0.96)
-	sky_mat.ground_bottom_color = Color(0.21, 0.22, 0.24)
-	sky_mat.ground_horizon_color = Color(0.65, 0.69, 0.73)
-	sky_mat.sun_angle_max = 18.0
-	sky.sky_material = sky_mat
-	sky.radiance_size = Sky.RADIANCE_SIZE_128
-	env.sky = sky
-	env.background_mode = Environment.BG_SKY
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.77
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.61, 0.75, 0.90)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.89, 0.91, 0.97)
+	env.ambient_light_energy = 0.82
 	world_env.environment = env
 	add_child(world_env)
 	sun = DirectionalLight3D.new()
@@ -178,13 +188,7 @@ func _create_ground() -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.30, 0.32, 0.35)
 	mat.roughness = 0.92
-	var noise := FastNoiseLite.new()
-	noise.frequency = 0.38
-	var tex := NoiseTexture2D.new()
-	tex.width = 128
-	tex.height = 128
-	tex.seamless = true
-	tex.noise = noise
+	var tex := load("res://assets/garage/asphalt.png") as Texture2D
 	mat.albedo_texture = tex
 	mat.uv1_scale = Vector3(48, 48, 48)
 	mesh.material_override = mat
@@ -295,10 +299,23 @@ func _apply_quality(mode: int) -> void:
 	quality = mode
 	var window := get_window()
 	window.content_scale_size = Vector2i(960, 540) if mode == 1 else Vector2i(640, 360)
+	if mode == 1 and sky_quality == null:
+		sky_quality = Sky.new()
+		var sky_mat := ProceduralSkyMaterial.new()
+		sky_mat.sky_top_color = Color(0.19, 0.40, 0.69)
+		sky_mat.sky_horizon_color = Color(0.76, 0.86, 0.96)
+		sky_quality.sky_material = sky_mat
+		sky_quality.radiance_size = Sky.RADIANCE_SIZE_32
+	var env := world_env.environment
+	env.sky = sky_quality if mode == 1 else null
+	env.background_mode = Environment.BG_SKY if mode == 1 else Environment.BG_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if mode == 1 else Environment.AMBIENT_SOURCE_COLOR
 	sun.shadow_enabled = mode == 1
 	camera.far = 100.0 if mode == 1 else 78.0
 
 func _process(delta: float) -> void:
+	if loading:
+		return
 	perf_timer += delta
 	if perf_timer > 0.3:
 		perf_timer = 0.0
@@ -334,6 +351,8 @@ func _process(delta: float) -> void:
 			visual.visible = car == active or camera.global_position.distance_to(car.global_position) < (50.0 if quality == 1 else 29.0)
 
 func _input(event: InputEvent) -> void:
+	if loading:
+		return
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.physical_keycode == KEY_F1:
