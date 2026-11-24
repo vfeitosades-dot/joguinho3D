@@ -1,0 +1,19 @@
+name: Publicar executável Pátio
+on:
+  push:
+    branches: [download-patio-v0.1]
+    paths: [.github/workflows/patio-download.yml]
+permissions:
+  contents: write
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Conferir e publicar o jogo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          unzip -o Patio-Windows.zip Patio.exe
+          echo '31cac9f7bcfbb1476bff9953e4d89b11698fdadd7055d997a99907205adcc928  Patio.exe' | sha256sum -c -
+          gh release create patio-windows-0.1 Patio.exe --target "$GITHUB_SHA" --title 'Pátio para Windows' --notes 'Baixe Patio.exe para jogar.' --latest=false
