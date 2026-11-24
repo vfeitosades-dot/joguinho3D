@@ -195,7 +195,7 @@ tail=old[old.index("# O projeto C++ original"):]
 new='''extends CharacterBody3D
 
 const WALK_SPEED: float = 1.55
-const RUN_SPEED: float = 3.4
+const RUN_SPEED: float = 4.25
 const JUMP_VELOCITY: float = 7.4
 const GRAVITY: float = 22.0
 const MODEL_PATH: String = "res://assets/manny/Manny_motion.glbdata"
@@ -206,6 +206,9 @@ var _clips: Dictionary = {}
 var _state: String = ""
 var _land_time: float = 0.0
 var wall_touch: Node
+var motion_speeds: Dictionary = {}
+var start_remaining: float = 0.0
+var jump_clip: String = ""
 
 
 func _ready() -> void:
@@ -249,11 +252,14 @@ func _ready() -> void:
 				_clips[key] = clip
 				var anim: Animation = _anim.get_animation(clip)
 				anim.loop_mode = Animation.LOOP_LINEAR if key in ["idle", "walk", "run", "fall", "drive"] else Animation.LOOP_NONE
-	_play("idle")
 	if _clips.size() == 9:
 		print("MANNY_READY: 9 clips")
 	else:
 		push_error("Manny: faltam clipes: " + str(_clips))
+	var skeleton := wall_touch.get("skeleton") as Skeleton3D
+	if skeleton != null:
+		motion_speeds = preload("res://scripts/motion_loader.gd").load_pack(_anim, skeleton, _clips)
+	_play("idle")
 
 func _find_animation_player(node: Node) -> AnimationPlayer:
 	if node is AnimationPlayer:
@@ -270,7 +276,7 @@ func _play(state: String) -> void:
 	_state = state
 	var clip: StringName = _clips[state]
 	_anim.speed_scale = 1.0
-	_anim.play(clip, 0.24)
+	_anim.play(clip, 0.12 if state.begins_with("jump") else 0.20)
 	if state in ["enter", "drive", "exit"] and wall_touch != null:
 		wall_touch.call("release_now")
 
@@ -282,17 +288,39 @@ func _play(state: String) -> void:
 	_land_time = maxf(0.0, _land_time - delta)
 	if not is_on_floor():
 		_land_time = 0.0
-		_play("jump" if velocity.y > 0.0 else "fall")
+		start_remaining = 0.0
+		if motion_speeds.is_empty():
+			_play("jump" if velocity.y > 0.0 else "fall")
+		elif was_grounded and velocity.y > 0.0:
+			jump_clip = "jump_forward" if actual_speed > 0.8 else "jump_up"
+			_play(jump_clip)
+		elif not _state.begins_with("jump"):
+			_play("fall")
 	elif _land_time > 0.0:
+		jump_clip = ""
 		_play("land")
 	elif actual_speed > 0.12:
-		var running: bool = actual_speed > 2.05
-		_play("run" if running else "walk")
-		if _anim != null:
-			_anim.speed_scale = clampf(actual_speed / (RUN_SPEED if running else WALK_SPEED), 0.35, 1.35)
+		if motion_speeds.is_empty():
+			var running: bool = actual_speed > 2.05
+			_play("run" if running else "walk")
+			if _anim != null:
+				_anim.speed_scale = clampf(actual_speed / (RUN_SPEED if running else WALK_SPEED), 0.35, 1.35)
+		else:
+			if _state == "idle" and actual_speed < 1.8 and not Input.is_action_pressed("sprint"):
+				start_remaining = 0.65
+				_play("start_walk")
+			if start_remaining > 0.0 and actual_speed < 2.0:
+				start_remaining -= delta
+			else:
+				start_remaining = 0.0
+				var next: String = "sprint" if actual_speed > 3.05 else ("jog" if actual_speed > 1.8 else "walk")
+				_play(next)
+				if _anim != null:
+					_anim.speed_scale = clampf(actual_speed / maxf(0.1, float(motion_speeds.get(next, 1.2))), 0.65, 1.45)
 	else:
+		start_remaining = 0.0
 		_play("idle")
-	if _anim != null and _state in ["idle", "jump", "fall", "land"]:
+	if _anim != null and _state in ["idle", "jump", "jump_up", "jump_forward", "fall", "land", "start_walk"]:
 		_anim.speed_scale = 1.0
 
 '''+tail

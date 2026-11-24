@@ -93,10 +93,10 @@ jobs:
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v9-polish
-          name: "Motor Lab V9 - Smooth Drive"
+          tag_name: baseplate-manny-v10-motion
+          name: "Motor Lab V10 - Motion & Sky"
           body: |
-            Interpolacao de fisica, camera suave, otimizacao de carros estacionados, pintura polida, resposta de impacto e painel de instrumentos. Mantem IK e fisica V8.
+            Nuvens por texturas alpha, brilho solar discreto e suporte ao pack MotionSmith convertido. Coloque MotionSmith_manny.json junto do EXE para carregar os seis movimentos; sem o arquivo, usa o pack anterior.
             Sete carros, nove animacoes do Manny e interacao ambiental com parede.
             Testes de renderizacao OpenGL em Linux e executavel Windows headless.
             Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.

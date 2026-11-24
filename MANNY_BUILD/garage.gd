@@ -48,6 +48,9 @@ func _ready() -> void:
 	_create_ground()
 	_create_wall()
 	_create_details()
+	var sky_fx := Node3D.new()
+	sky_fx.set_script(preload("res://scripts/sky_fx.gd"))
+	add_child(sky_fx)
 	player = CharacterBody3D.new()
 	player.name = "Humanoide"
 	player.position = Vector3(0.0, 0.04, -6.0)
@@ -273,8 +276,8 @@ func _create_world() -> void:
 	add_child(world_env)
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-37, -38, 0)
-	sun.light_color = Color(1.0, 0.91, 0.78)
-	sun.light_energy = 1.18
+	sun.light_color = Color(1.0, 0.94, 0.81)
+	sun.light_energy = 1.25
 	sun.shadow_enabled = false
 	sun.directional_shadow_max_distance = 26.0
 	add_child(sun)
@@ -429,7 +432,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V09", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V10", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -477,8 +480,9 @@ func _apply_quality(mode: int) -> void:
 	if mode >= 1 and sky_quality == null:
 		sky_quality = Sky.new()
 		var sky_mat := ProceduralSkyMaterial.new()
-		sky_mat.sky_top_color = Color(0.19, 0.40, 0.69)
-		sky_mat.sky_horizon_color = Color(0.76, 0.86, 0.96)
+		sky_mat.sky_top_color = Color(0.18, 0.43, 0.76)
+		sky_mat.sky_horizon_color = Color(0.78, 0.88, 0.97)
+		sky_mat.sun_angle_max = 8.0
 		sky_quality.sky_material = sky_mat
 		sky_quality.radiance_size = Sky.RADIANCE_SIZE_32
 	var env := world_env.environment

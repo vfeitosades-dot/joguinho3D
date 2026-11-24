@@ -74,6 +74,29 @@ for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
 rng=np.random.default_rng(4242)
 grain=rng.integers(155,222,(128,128),dtype=np.uint8)
 Image.fromarray(grain).convert("RGB").save(assets/"asphalt.png")
+# Small procedurally painted alpha textures, no volumetric clouds or screen-space ray tracing.
+from PIL import ImageFilter
+yy,xx=np.mgrid[0:128,0:256]
+field=np.zeros((128,256),np.float32)
+for cx,cy,rx,ry in [(52,74,48,28),(91,56,56,40),(132,51,49,44),(175,64,51,30),(209,76,38,23),(139,83,82,26)]:
+    field=np.maximum(field,np.exp(-2.1*((xx-cx)/rx)**2-2.1*((yy-cy)/ry)**2))
+noise=np.zeros_like(field)
+for dim,weight in [(8,.14),(20,.07),(48,.035)]:
+    im=Image.fromarray(rng.integers(0,255,(dim,dim*2),dtype=np.uint8)).resize((256,128),Image.Resampling.BICUBIC)
+    noise+=(np.asarray(im,dtype=np.float32)/255-.5)*weight
+alpha=np.clip((field+noise-.14)*1.55,0,1)
+shade=np.clip(1-(yy/128)*.18,0,1)
+rgba=np.zeros((128,256,4),dtype=np.uint8)
+for i,k in enumerate([1,.99,.98]):rgba[:,:,i]=np.uint8(shade*255*k)
+rgba[:,:,3]=np.uint8(alpha*255)
+Image.fromarray(rgba,"RGBA").save(assets/"cloud.png")
+yy,xx=np.mgrid[-1:1:256j,-1:1:256j]
+rr=np.sqrt(xx*xx+yy*yy); ang=np.arctan2(yy,xx)
+halo=np.exp(-rr*rr*9)*.35+np.exp(-rr*rr*85)*.65
+rays=(np.maximum(np.cos(ang*6+.5),0)**22)*np.exp(-rr*4)*.18
+alpha=np.clip((halo+rays)*np.clip((1-rr)*4,0,1),0,1)
+rgba=np.zeros((256,256,4),dtype=np.uint8);rgba[:,:,:3]=[255,244,214];rgba[:,:,3]=np.uint8(alpha*255)
+Image.fromarray(rgba,"RGBA").save(assets/"sun_glow.png")
 # Original looped synthetic engine audio; no external audio license required.
 rate=22050
 t=np.arange(rate*2)/rate
@@ -87,7 +110,7 @@ with wave.open(str(assets/"impact.wav"),"wb") as out:
     out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(np.clip(impact*28000,-32767,32767).astype("<i2").tobytes())
 preset=project/"export_presets.cfg"
 preset.write_text(preset.read_text().replace("*.glbdata, CREDITS.txt","*.glbdata, *.json, CREDITS.txt"))
-for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd"),("dashboard.gd","dashboard.gd")]:
+for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd"),("dashboard.gd","dashboard.gd"),("motion_loader.gd","motion_loader.gd"),("sky_fx.gd","sky_fx.gd")]:
     shutil.copyfile(base/src,project/"scripts"/dest)
 settings=project/"project.godot"
 s=settings.read_text().replace('viewport_width=1280','viewport_width=1280').replace('viewport_height=720','viewport_height=720').replace('window/stretch/mode="canvas_items"','window/stretch/mode="viewport"')
