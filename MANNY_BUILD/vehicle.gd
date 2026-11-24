@@ -39,6 +39,12 @@ var pedal_right: Vector3
 var hip_anchor: Vector3
 var grip_left: Node3D
 var grip_right: Node3D
+var impact_strength: float = 0.0
+var impact_cooldown: float = 0.0
+var impact_player: AudioStreamPlayer3D
+var impact_count: int = 0
+var impact_direction: Vector3 = Vector3.ZERO
+var filtered_accel: float = 0.0
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
@@ -105,6 +111,12 @@ func setup(path: String, data: Dictionary) -> bool:
 	motor.max_distance = 27.0
 	motor.volume_db = -18.0
 	add_child(motor)
+	impact_player = AudioStreamPlayer3D.new()
+	impact_player.stream = load("res://assets/garage/impact.wav") as AudioStream
+	impact_player.unit_size = 5.0
+	impact_player.max_distance = 25.0
+	add_child(impact_player)
+	reset_physics_interpolation()
 	return true
 
 func _make_grip(local_pos: Vector3, label: String) -> Node3D:
@@ -117,12 +129,15 @@ func _make_grip(local_pos: Vector3, label: String) -> Node3D:
 func seat_world() -> Vector3:
 	return visual.to_global(hip_anchor)
 
+func rendered_seat_world() -> Vector3:
+	return visual.get_global_transform_interpolated() * hip_anchor
+
 func pedal_world(right: bool) -> Vector3:
 	var local_pos := pedal_right if right else pedal_left
 	if right:
 		local_pos.z += throttle * 0.035
 		local_pos.y -= brake_pressure * 0.018
-	return visual.to_global(local_pos)
+	return visual.get_global_transform_interpolated() * local_pos
 
 func _part(node: Node, wanted: String) -> Node3D:
 	var key: String = String(node.name).to_lower().replace("_", "").replace(" ", "").replace("-", "")
@@ -177,6 +192,11 @@ func _physics_process(delta: float) -> void:
 	if door != null:
 		door_angle = lerpf(door_angle, door_goal, 1.0 - exp(-7.0 * delta))
 		door.rotation.y = door_angle
+	impact_cooldown = maxf(0.0, impact_cooldown - delta)
+	impact_strength = move_toward(impact_strength, 0.0, delta * 2.6)
+	# Parked vehicles are static after settling; avoid seven floor collision solves every tick.
+	if not occupied and road_velocity.length_squared() < 0.0001 and absf(visual.rotation.x) < 0.001 and absf(visual.rotation.z) < 0.001 and absf(visual.position.y) < 0.001 and is_on_floor():
+		return
 	var gas: float = 0.0
 	var turn: float = 0.0
 	var braking: bool = false
@@ -221,29 +241,46 @@ func _physics_process(delta: float) -> void:
 	if not enabled and road_velocity.length() < 0.10:
 		road_velocity = Vector3.ZERO
 	velocity = road_velocity
-	velocity.y = -1.5
+	velocity.y = -0.35
 	move_and_slide()
 	for k in range(get_slide_collision_count()):
 		var collision := get_slide_collision(k)
 		var n := collision.get_normal()
 		if absf(n.y) < 0.35:
-			road_velocity = road_velocity.slide(n) * 0.48
-			yaw_rate *= 0.45
+			var closing: float = maxf(0.0, -road_velocity.dot(n))
+			if closing > 1.4 and impact_cooldown <= 0.0:
+				_register_impact(closing, n)
+			# Preserve tangential momentum, damp the normal component and allow a small rebound.
+			road_velocity = road_velocity.slide(n) * 0.78 + n * minf(closing * 0.10, 0.8)
+			yaw_rate *= 0.65
+			road_velocity = road_velocity.limit_length(max_speed)
 	if absf(global_position.x) > 46.0 or absf(global_position.z) > 46.0:
+		var boundary_normal := Vector3.ZERO
+		if absf(global_position.x) > 46.0:
+			boundary_normal.x = -signf(global_position.x)
+		if absf(global_position.z) > 46.0:
+			boundary_normal.z = -signf(global_position.z)
+		boundary_normal = boundary_normal.normalized()
+		if impact_cooldown <= 0.0 and road_velocity.length() > 1.4:
+			_register_impact(road_velocity.length(), boundary_normal)
 		global_position.x = clampf(global_position.x, -46.0, 46.0)
 		global_position.z = clampf(global_position.z, -46.0, 46.0)
-		road_velocity = Vector3.ZERO
+		road_velocity = road_velocity.slide(boundary_normal) * 0.35
+		reset_physics_interpolation()
 	speed = road_velocity.dot(forward)
 	var longitudinal_accel: float = clampf((speed - previous) / maxf(delta, 0.001), -14.0, 9.0)
+	filtered_accel = lerpf(filtered_accel, longitudinal_accel, 1.0 - exp(-10.0 * delta))
 	var lateral_accel: float = yaw_rate * speed
-	var pitch_goal: float = clampf(longitudinal_accel * 0.007, -0.085, 0.07)
+	var pitch_goal: float = clampf(filtered_accel * 0.008, -0.09, 0.075)
 	var roll_goal: float = clampf(-lateral_accel * 0.012, -0.11, 0.11)
+	pitch_goal += impact_direction.z * impact_strength * 0.065
+	roll_goal += impact_direction.x * impact_strength * 0.055
 	# Damped spring chassis animation; wheel centers remain at road height.
 	pitch_velocity += ((pitch_goal - visual.rotation.x) * 64.0 - pitch_velocity * 13.0) * delta
 	roll_velocity += ((roll_goal - visual.rotation.z) * 60.0 - roll_velocity * 12.0) * delta
 	visual.rotation.x += pitch_velocity * delta
 	visual.rotation.z += roll_velocity * delta
-	var heave_goal: float = -0.006 * absf(longitudinal_accel) - 0.003 * absf(lateral_accel)
+	var heave_goal: float = -0.004 * absf(filtered_accel) - 0.002 * absf(lateral_accel)
 	heave_velocity += ((heave_goal - visual.position.y) * 95.0 - heave_velocity * 17.0) * delta
 	visual.position.y += heave_velocity * delta
 	for i in range(wheels.size()):
@@ -262,6 +299,19 @@ func _physics_process(delta: float) -> void:
 	if motor != null and engine_on:
 		motor.pitch_scale = 0.70 + absf(speed) / max_speed * 0.95 + throttle * 0.20
 		motor.volume_db = -23.0 + throttle * 10.0
+
+func _register_impact(closing: float, surface_normal: Vector3) -> void:
+	impact_count += 1
+	impact_cooldown = 0.25
+	impact_strength = clampf(closing / 10.0, 0.12, 1.0)
+	impact_direction = global_basis.inverse() * surface_normal
+	pitch_velocity += impact_direction.z * impact_strength * 0.9
+	roll_velocity += impact_direction.x * impact_strength * 0.8
+	heave_velocity -= impact_strength * 0.12
+	if impact_player != null and impact_player.stream != null:
+		impact_player.volume_db = lerpf(-23.0, -10.0, impact_strength)
+		impact_player.pitch_scale = lerpf(1.12, 0.82, impact_strength)
+		impact_player.play()
 
 func reset_motion() -> void:
 	speed = 0.0

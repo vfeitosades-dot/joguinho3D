@@ -48,6 +48,7 @@ jobs:
           grep -F 'DOORS_TEST_OK' /tmp/manny-test.log
           grep -F 'SEATING_TEST_OK' /tmp/manny-test.log
           grep -F 'DRIVING_PHYSICS_TEST_OK' /tmp/manny-test.log
+          grep -F 'IMPACT_TEST_OK' /tmp/manny-test.log
           grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-test.log
       - name: Validar renderizador OpenGL com tela virtual
         shell: bash
@@ -86,16 +87,16 @@ jobs:
           $p = Start-Process -FilePath (Resolve-Path "build/manny/Baseplate_Manny.exe") -ArgumentList @("--headless","--log-file","motorlab-test.log","--quit-after","7200","--","--garage-test") -Wait -PassThru
           Get-Content motorlab-test.log
           if ($p.ExitCode -ne 0) { throw "EXE exit code $($p.ExitCode)" }
-          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","GARAGE_TEST_OK","DOORS_TEST_OK","SEATING_TEST_OK","DRIVING_PHYSICS_TEST_OK","WALL_TOUCH_TEST_OK")) {
+          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","GARAGE_TEST_OK","DOORS_TEST_OK","SEATING_TEST_OK","DRIVING_PHYSICS_TEST_OK","IMPACT_TEST_OK","WALL_TOUCH_TEST_OK")) {
             if (-not (Select-String -Path motorlab-test.log -SimpleMatch $marker -Quiet)) { throw "Missing $marker" }
           }
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v8-driving
-          name: "Motor Lab V8 - Driving & Seating"
+          tag_name: baseplate-manny-v9-polish
+          name: "Motor Lab V9 - Smooth Drive"
           body: |
-            Fisica de direcao com inercia, aderencia, frenagem, Ackermann e resposta visual de suspensao. Maos independentes na parede, quadril alinhado ao banco, IK de maos e pernas no carro.
+            Interpolacao de fisica, camera suave, otimizacao de carros estacionados, pintura polida, resposta de impacto e painel de instrumentos. Mantem IK e fisica V8.
             Sete carros, nove animacoes do Manny e interacao ambiental com parede.
             Testes de renderizacao OpenGL em Linux e executavel Windows headless.
             Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.

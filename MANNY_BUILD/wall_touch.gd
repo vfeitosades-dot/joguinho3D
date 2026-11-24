@@ -190,8 +190,8 @@ func drive_pose(car: Node3D, delta: float, amount: float = 1.0) -> void:
 	var right := car.get("grip_right") as Node3D
 	if left == null or right == null:
 		return
-	_set_arm(0, right.global_position, amount, delta)
-	_set_arm(1, left.global_position, amount, delta)
+	_set_arm(0, right.get_global_transform_interpolated().origin, amount, delta)
+	_set_arm(1, left.get_global_transform_interpolated().origin, amount, delta)
 	for i in range(leg_solvers.size()):
 		if not leg_solvers[i].is_running():
 			leg_markers[i].global_position = _world(feet[i])

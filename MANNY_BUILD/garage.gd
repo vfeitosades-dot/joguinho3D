@@ -37,6 +37,9 @@ var play_button: Button
 var quality_select: OptionButton
 var testing: bool = false
 var seating_weight: float = 0.0
+var dash: Control
+var hud_panel: PanelContainer
+var hud_clock: float = 0.0
 var seated_scale: float = 0.88
 
 
@@ -165,6 +168,11 @@ func _test() -> void:
 	active.call("reset_motion")
 	_exit(true)
 	print("DRIVING_PHYSICS_TEST_OK")
+	cars[0].call("_register_impact", 6.0, Vector3.FORWARD)
+	if int(cars[0].get("impact_count")) < 1 or float(cars[0].get("impact_strength")) < 0.1:
+		get_tree().quit(15)
+		return
+	print("IMPACT_TEST_OK")
 	if active != null or not player.is_physics_processing():
 		get_tree().quit(4)
 		return
@@ -354,19 +362,27 @@ func _create_ui() -> void:
 	fps_label = _label("", 12, Color(0.52, 0.78, 0.92))
 	stack.add_child(fps_label)
 	var hud := PanelContainer.new()
+	hud_panel = hud
 	root.add_child(hud)
 	hud.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	hud.offset_left = -228
-	hud.offset_top = -110
+	hud.offset_left = -322
+	hud.offset_top = -204
 	hud.offset_right = -15
 	hud.offset_bottom = -15
 	hud.add_theme_stylebox_override("panel", _style(Color(0.035, 0.055, 0.08, 0.88), Color(0.27, 0.37, 0.47)))
 	var bottom := VBoxContainer.new()
 	hud.add_child(bottom)
-	speed_label = _label("00  km/h", 30, Color.WHITE)
-	bottom.add_child(speed_label)
-	status_label = _label("A PÉ", 13, Color(0.66, 0.82, 0.93))
+	status_label = _label("VEÍCULO", 14, Color(0.72, 0.88, 0.93))
 	bottom.add_child(status_label)
+	speed_label = _label("", 12, Color.WHITE)
+	speed_label.hide()
+	bottom.add_child(speed_label)
+	dash = Control.new()
+	dash.set_script(preload("res://scripts/dashboard.gd"))
+	dash.custom_minimum_size = Vector2(290, 155)
+	dash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.add_child(dash)
+	hud.hide()
 	puzzle_panel = PanelContainer.new()
 	root.add_child(puzzle_panel)
 	puzzle_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -401,7 +417,7 @@ func _create_menu() -> void:
 	var veil := ColorRect.new()
 	menu.add_child(veil)
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	veil.color = Color(0.018, 0.026, 0.04, 0.87)
+	veil.color = Color(0.018, 0.026, 0.04, 0.77)
 	var center := CenterContainer.new()
 	menu.add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -413,7 +429,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V07", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V09", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -481,17 +497,24 @@ func _process(delta: float) -> void:
 		fps_label.text = "%d FPS   |   F1: %s" % [Engine.get_frames_per_second(), ["540p", "720p", "1080p"][quality]]
 	if active != null:
 		if not locked:
-			player.global_rotation = active.global_rotation
+			player.global_rotation = active.get_global_transform_interpolated().basis.get_euler()
 			var visual_body := player.get("_body_visual") as Node3D
 			var car_visual := active.get("visual") as Node3D
 			visual_body.rotation.x = -car_visual.rotation.x
 			visual_body.rotation.z = -car_visual.rotation.z
 			var rig := player.get("wall_touch") as Node
 			seating_weight = move_toward(seating_weight, 1.0, delta * 3.0)
-			rig.call("align_hips", active.call("seat_world"), 1.0)
+			rig.call("align_hips", active.call("rendered_seat_world"), 1.0)
 			rig.call("drive_pose", active, delta, seating_weight)
-		speed_label.text = "%02d  km/h" % int(absf(float(active.get("speed"))) * 3.6)
-		status_label.text = str(active.get("title")) + ("  /  ON" if active.get("engine_on") else "  /  OFF")
+		hud_panel.show()
+		dash.set("speed", absf(float(active.get("speed"))) * 3.6)
+		dash.set("max_speed", float(active.get("max_speed")) * 3.6)
+		dash.set("throttle", active.get("throttle"))
+		dash.set("brake", active.get("brake_pressure"))
+		dash.set("impact", active.get("impact_strength"))
+		dash.set("engine_on", active.get("engine_on"))
+		dash.set("gear", "R" if float(active.get("speed")) < -0.2 else ("D" if active.get("engine_on") else "P"))
+		status_label.text = str(active.get("title")).to_upper()
 		hint.text = "WASD dirigir  |  ESPAÇO freio  |  E sair" if not puzzle else "Ativação do veículo"
 		if puzzle:
 			pulse += delta * (0.68 + float(stage) * 0.13)
@@ -500,8 +523,7 @@ func _process(delta: float) -> void:
 			pulse_bar.value = pulse * 100.0
 			pulse_bar.modulate = Color(0.60, 1.0, 0.72) if absf(pulse - targets[stage]) <= 0.11 else Color.WHITE
 	else:
-		speed_label.text = "00  km/h"
-		status_label.text = "A PÉ"
+		hud_panel.hide()
 		nearest = null
 		var best: float = 3.5
 		for car in cars:
@@ -557,6 +579,7 @@ func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 	player.velocity = Vector3.ZERO
 	player.collision_layer = 0
 	player.collision_mask = 0
+	player.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	var body := player.get("_body_visual") as Node3D
 	var rig := player.get("wall_touch") as Node
 	rig.call("release_now")
@@ -655,6 +678,8 @@ func _exit(immediate: bool = false) -> void:
 	player.global_rotation = Vector3.ZERO
 	player.collision_layer = 1
 	player.collision_mask = 1
+	player.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+	player.reset_physics_interpolation()
 	player.call("_play", "idle")
 	player.set_physics_process(true)
 	camera.set("target", player)

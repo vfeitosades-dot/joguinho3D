@@ -42,6 +42,12 @@ def compact_glb(raw,name):
     for m in j.get("materials",[]):
         m.pop("normalTexture",None)
         m.pop("occlusionTexture",None)
+        if m.get("name","").startswith("Paint"):
+            surface=m.setdefault("pbrMetallicRoughness",{})
+            surface["roughnessFactor"]=min(float(surface.get("roughnessFactor",1.0)),.29)
+            surface["metallicFactor"]=max(.40,float(surface.get("metallicFactor",0.0)))
+            # Avoid requiring an additional clearcoat shader on integrated graphics.
+
     encoded=json.dumps(j,separators=(",",":")).encode()
     encoded+=b" "*((-len(encoded))%4)
     return struct.pack("<4sII",b"glTF",2,12+8+len(encoded)+8+len(payload))+struct.pack("<I4s",len(encoded),b"JSON")+encoded+struct.pack("<I4s",len(payload),b"BIN\x00")+payload
@@ -74,18 +80,24 @@ t=np.arange(rate*2)/rate
 signal=sum(np.sin(2*np.pi*f*t)*a for f,a in [(40,.23),(80,.18),(120,.08),(160,.05),(240,.025)])
 with wave.open(str(assets/"engine.wav"),"wb") as w:
     w.setnchannels(1);w.setsampwidth(2);w.setframerate(rate);w.writeframes((signal*24000).astype("<i2").tobytes())
+# Original, short, low-volume chassis impact sound.
+impact_t=np.arange(int(rate*.32))/rate
+impact=(.36*np.sin(2*np.pi*(82*impact_t-70*impact_t**2))+.09*rng.standard_normal(len(impact_t)))*np.exp(-impact_t*19)
+with wave.open(str(assets/"impact.wav"),"wb") as out:
+    out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(np.clip(impact*28000,-32767,32767).astype("<i2").tobytes())
 preset=project/"export_presets.cfg"
 preset.write_text(preset.read_text().replace("*.glbdata, CREDITS.txt","*.glbdata, *.json, CREDITS.txt"))
-for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd")]:
+for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd"),("dashboard.gd","dashboard.gd")]:
     shutil.copyfile(base/src,project/"scripts"/dest)
 settings=project/"project.godot"
 s=settings.read_text().replace('viewport_width=1280','viewport_width=1280').replace('viewport_height=720','viewport_height=720').replace('window/stretch/mode="canvas_items"','window/stretch/mode="viewport"')
 s=s.replace("config/name=\"Baseplate 3D\"","config/name=\"Motor Lab\"")
 s=s.replace("[application]","[application]\n\nconfig/description=\"Motor Lab - Compatibility\"")
+s=s.replace('[physics]','[physics]\ncommon/physics_interpolation=true\ncommon/physics_ticks_per_second=60')
 settings.write_text(s)
 preset.write_text(preset.read_text().replace("debug/export_console_wrapper=1","debug/export_console_wrapper=0").replace("texture_format/bptc=true","texture_format/bptc=false").replace("binary_format/embed_pck=true","binary_format/embed_pck=true\napplication/modify_resources=false"))
 credits=project/"CREDITS.txt"
 with credits.open("a") as f:
     f.write("\nMotor Lab cars: vinish.dev (https://vinish.dev/free-3d-models/realistic-cars), CC BY 4.0.\n")
-    for item in catalog: f.write(item["title"]+" by vinish.dev; GLB adapted: textures capped at 512px, simplified material maps, approximate extracted driver door, wheel and steering motion.\n")
+    for item in catalog: f.write(item["title"]+" by vinish.dev; GLB adapted: textures capped at 512px, simplified material maps, polished paint, approximate extracted driver door, wheel and steering motion.\n")
     f.write("https://creativecommons.org/licenses/by/4.0/\nOriginal synthetic engine loop.\n")
