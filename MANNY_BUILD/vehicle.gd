@@ -57,6 +57,11 @@ var damage_goal: Vector2 = Vector2.ZERO
 var reflective_glass_count: int = 0
 var reflective_paint_count: int = 0
 var tuned_materials: Dictionary = {}
+var glass_materials: Array[BaseMaterial3D] = []
+var glass_plane: Array = []
+var wheel_root: Node3D
+var wheel_radii: Array[float] = []
+var wheel_steer_limits: Array[float] = []
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
@@ -71,6 +76,7 @@ func setup(path: String, data: Dictionary) -> bool:
 	pedal_left = Vector3(data["seat_x"] + 0.13, data["pedal_y"], data["pedal_z"])
 	pedal_right = Vector3(data["seat_x"] - 0.075, data["pedal_y"], data["pedal_z"])
 	wheel_radius = data["grip_radius"]
+	glass_plane = data.get("glass_plane",[])
 	var doc := GLTFDocument.new()
 	var gltf := GLTFState.new()
 	var bytes := FileAccess.get_file_as_bytes(path)
@@ -89,14 +95,27 @@ func setup(path: String, data: Dictionary) -> bool:
 	body_mesh = _part(model, "Body") as MeshInstance3D
 	if body_mesh == null or body_mesh.get_blend_shape_count() < 2:
 		body_mesh = _find_damage_mesh(model)
+	wheel_root = Node3D.new()
+	wheel_root.name = "IndependentWheelAxles"
+	add_child(wheel_root)
 	for name_part in ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]:
 		var wheel := _part(model, name_part)
 		if wheel == null:
 			push_error("Missing wheel " + name_part)
 			return false
+		wheel.reparent(wheel_root,true)
 		wheels.append(wheel)
 		wheel_bases.append(wheel.basis)
 		wheel_positions.append(wheel.position)
+		var tyre_radius: float = radius
+		var tyre_half_width: float = 0.14
+		if wheel is MeshInstance3D:
+			var bounds: AABB = (wheel as MeshInstance3D).get_aabb()
+			tyre_radius = maxf(bounds.size.y,bounds.size.z)*0.5
+			tyre_half_width = bounds.size.x*0.5
+		wheel_radii.append(maxf(tyre_radius,0.1))
+		var clearance: float = maxf(0.045,width*0.5-absf(wheel.position.x)-tyre_half_width)
+		wheel_steer_limits.append(clampf(asin(clampf(clearance/maxf(tyre_radius,0.1),0.0,0.9)),0.18,0.40))
 	door = _part(model, "DriverDoorPivot")
 	if door == null:
 		push_error("Missing driver door " + title)
@@ -182,11 +201,31 @@ func _polish_surfaces(node: Node) -> void:
 					tuned_materials[original] = material
 				instance.set_surface_override_material(i,material)
 				if glass:
+					if not glass_materials.has(material):
+						glass_materials.append(material)
 					reflective_glass_count += 1
 				else:
 					reflective_paint_count += 1
 	for child in node.get_children():
 		_polish_surfaces(child)
+
+func set_glass_overlay(material: Material) -> void:
+	for glass in glass_materials:
+		glass.next_pass = material
+
+func set_render_visible(show: bool) -> void:
+	visual.visible = show
+	wheel_root.visible = show
+
+func wheel_geometry_ok() -> bool:
+	if wheels.size() != 4 or wheel_radii.size() != 4:
+		return false
+	for i in range(4):
+		if wheels[i].get_parent() != wheel_root or wheels[i].position.distance_to(wheel_positions[i]) > 0.002:
+			return false
+		if absf(wheel_positions[i].y-wheel_radii[i]) > 0.035:
+			return false
+	return true
 
 func _find_damage_mesh(node: Node) -> MeshInstance3D:
 	if node is MeshInstance3D and node.get_blend_shape_count() >= 2:
@@ -307,7 +346,7 @@ func _physics_process(delta: float) -> void:
 		speed = move_toward(speed, target_speed, traction * throttle * delta)
 	else:
 		speed = move_toward(speed, 0.0, drag * delta)
-	var angle: float = turn * lerpf(0.54, 0.13, clampf(absf(speed) / max_speed, 0.0, 1.0))
+	var angle: float = turn * lerpf(minf(wheel_steer_limits[0],wheel_steer_limits[1])*0.85, 0.11, clampf(absf(speed) / max_speed, 0.0, 1.0))
 	steer = move_toward(steer, angle, delta * (2.1 if absf(turn) > 0.01 else 3.4))
 	var desired_yaw: float = tan(steer) * speed / wheelbase
 	# Cap lateral acceleration to a dry-road grip envelope; smooth inertia at turn-in.
@@ -351,18 +390,18 @@ func _physics_process(delta: float) -> void:
 	var longitudinal_accel: float = clampf((speed - previous) / maxf(delta, 0.001), -14.0, 9.0)
 	filtered_accel = lerpf(filtered_accel, longitudinal_accel, 1.0 - exp(-10.0 * delta))
 	var lateral_accel: float = yaw_rate * speed
-	var pitch_goal: float = clampf(filtered_accel * 0.008, -0.09, 0.075)
-	var roll_goal: float = clampf(-lateral_accel * 0.012, -0.11, 0.11)
-	pitch_goal += impact_direction.z * impact_strength * 0.065
-	roll_goal += impact_direction.x * impact_strength * 0.055
+	var pitch_goal: float = clampf(filtered_accel * 0.0045, -0.042, 0.038)
+	var roll_goal: float = clampf(-lateral_accel * 0.006, -0.042, 0.042)
+	pitch_goal = clampf(pitch_goal + impact_direction.z * impact_strength * 0.035,-0.055,0.055)
+	roll_goal = clampf(roll_goal + impact_direction.x * impact_strength * 0.03,-0.055,0.055)
 	# Damped spring chassis animation; wheel centers remain at road height.
 	pitch_velocity += ((pitch_goal - visual.rotation.x) * 64.0 - pitch_velocity * 13.0) * delta
 	roll_velocity += ((roll_goal - visual.rotation.z) * 60.0 - roll_velocity * 12.0) * delta
-	visual.rotation.x += pitch_velocity * delta
-	visual.rotation.z += roll_velocity * delta
+	visual.rotation.x = clampf(visual.rotation.x + pitch_velocity * delta,-0.065,0.065)
+	visual.rotation.z = clampf(visual.rotation.z + roll_velocity * delta,-0.055,0.055)
 	var heave_goal: float = -0.004 * absf(filtered_accel) - 0.002 * absf(lateral_accel)
 	heave_velocity += ((heave_goal - visual.position.y) * 95.0 - heave_velocity * 17.0) * delta
-	visual.position.y += heave_velocity * delta
+	visual.position.y = clampf(visual.position.y + heave_velocity * delta,-0.023,0.016)
 	for i in range(wheels.size()):
 		var side: float = 1.0 if i % 2 == 0 else -1.0
 		var yaw_amount: float = 0.0
@@ -371,9 +410,10 @@ func _physics_process(delta: float) -> void:
 			var inner: bool = signf(steer) == side
 			yaw_amount = signf(steer) * atan(wheelbase / maxf(0.6, center_radius + (-0.5 if inner else 0.5) * front_track))
 		var linear: float = speed - yaw_rate * wheel_positions[i].x
-		wheel_roll[i] = fposmod(wheel_roll[i] + linear * delta / radius, TAU)
-		wheels[i].position = visual.transform.affine_inverse() * wheel_positions[i]
-		wheels[i].basis = visual.basis.inverse() * Basis(Vector3.UP, yaw_amount) * wheel_bases[i] * Basis(Vector3.RIGHT, wheel_roll[i] * side)
+		yaw_amount = clampf(yaw_amount,-wheel_steer_limits[i],wheel_steer_limits[i])
+		wheel_roll[i] = fposmod(wheel_roll[i] + linear * delta / wheel_radii[i], TAU)
+		wheels[i].position = wheel_positions[i]
+		wheels[i].basis = Basis(Vector3.UP, yaw_amount) * wheel_bases[i] * Basis(Vector3.RIGHT, wheel_roll[i] * side)
 	if steering_wheel != null:
 		steering_wheel.basis = steering_basis * Basis(Vector3.FORWARD, -steer * 3.0)
 	if motor != null and engine_on:

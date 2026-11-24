@@ -43,6 +43,7 @@ var hud_clock: float = 0.0
 var seated_scale: float = 0.88
 var pack_status: Label
 var pack_dialog: FileDialog
+var glass_reflection: Node3D
 
 
 func _ready() -> void:
@@ -63,6 +64,10 @@ func _ready() -> void:
 	camera.set("target", player)
 	camera.current = true
 	add_child(camera)
+	glass_reflection = Node3D.new()
+	glass_reflection.set_script(preload("res://scripts/glass_reflection.gd"))
+	add_child(glass_reflection)
+	glass_reflection.call("setup",player,camera)
 	testing = "--garage-test" in OS.get_cmdline_user_args()
 	_create_ui()
 	_create_menu()
@@ -98,6 +103,7 @@ func _load_cars() -> void:
 			cars.append(car)
 		else:
 			car.queue_free()
+	glass_reflection.set("cars",cars)
 	loading = false
 	player.set_physics_process(not menu_open)
 	play_button.disabled = false
@@ -119,6 +125,23 @@ func _test() -> void:
 			get_tree().quit(22)
 			return
 	print("REFLECTION_MATERIAL_TEST_OK")
+	for car in cars:
+		if not car.call("wheel_geometry_ok") or (car.get("glass_plane") as Array).size() != 6:
+			push_error("Wheel or glass fit failed " + str(car.get("title")))
+			get_tree().quit(23)
+			return
+	print("WHEEL_GEOMETRY_TEST_OK")
+	# Verify the actual moving player capture is scheduled on a side window.
+	var reflect_car := cars[0]
+	player.global_position = reflect_car.to_global(Vector3(2.0,0.04,0.0))
+	camera.global_position = reflect_car.to_global(Vector3(4.0,1.7,2.0))
+	camera.look_at(reflect_car.global_position+Vector3.UP)
+	glass_reflection.call("update_reflection",0.2,false)
+	if int(glass_reflection.get("capture_count")) < 1:
+		push_error("Planar capture not scheduled")
+		get_tree().quit(24)
+		return
+	print("PLAYER_REFLECTION_TEST_OK")
 	var gesture := player.get("wall_touch") as Node
 	if gesture == null or gesture.get("ik") == null:
 		get_tree().quit(5)
@@ -178,6 +201,9 @@ func _test() -> void:
 		return
 	active.call("reset_motion")
 	_exit(true)
+	if not cars[0].call("wheel_geometry_ok"):
+		get_tree().quit(25)
+		return
 	print("DRIVING_PHYSICS_TEST_OK")
 	cars[0].call("_register_impact", 6.0, Vector3.FORWARD)
 	if int(cars[0].get("impact_count")) < 1 or float(cars[0].get("impact_strength")) < 0.1:
@@ -475,7 +501,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V13", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V14", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -537,6 +563,8 @@ func _show_menu(show: bool) -> void:
 
 func _apply_quality(mode: int) -> void:
 	quality = mode
+	if glass_reflection != null:
+		glass_reflection.call("set_quality",mode)
 	var window := get_window()
 	window.content_scale_size = Vector2i(1920, 1080) if mode == 2 else (Vector2i(1280, 720) if mode == 1 else Vector2i(960, 540))
 	if sky_quality == null:
@@ -562,6 +590,8 @@ func _apply_quality(mode: int) -> void:
 	camera.far = 100.0 if mode >= 1 else 78.0
 
 func _process(delta: float) -> void:
+	if glass_reflection != null:
+		glass_reflection.call("update_reflection",delta,loading or menu_open or active != null)
 	if loading or menu_open:
 		return
 	perf_timer += delta
@@ -609,7 +639,7 @@ func _process(delta: float) -> void:
 	for car in cars:
 		var visual := car.get("visual") as Node3D
 		if visual != null:
-			visual.visible = car == active or camera.global_position.distance_to(car.global_position) < (50.0 if quality >= 1 else 36.0)
+			car.call("set_render_visible",car == active or camera.global_position.distance_to(car.global_position) < (50.0 if quality >= 1 else 36.0))
 
 func _input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:

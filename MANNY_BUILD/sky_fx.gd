@@ -13,13 +13,13 @@ func _ready() -> void:
 	cloud_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	cloud_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	cloud_material.albedo_texture = load("res://assets/garage/cloud.png") as Texture2D
-	cloud_material.albedo_color = Color(1.0, 0.98, 0.94, 0.88)
+	cloud_material.albedo_color = Color(1.0, 0.98, 0.97, 0.65)
 	cloud_material.no_depth_test = false
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7081
-	for i in range(0 if ResourceLoader.exists("res://assets/garage/real_sky.hdr") else 7):
+	for i in range(5 if ResourceLoader.exists("res://assets/garage/real_sky.hdr") else 7):
 		var angle: float = TAU * float(i) / 7.0
-		var pos := Vector3(cos(angle) * 42.0, 22.0 + rng.randf_range(-3.0, 8.0), sin(angle) * 42.0)
+		var pos := Vector3(cos(angle) * 42.0, 24.0 + rng.randf_range(-3.0, 8.0), sin(angle) * 42.0)
 		var cloud := _quad(Vector2(rng.randf_range(19.0, 31.0), rng.randf_range(5.5, 9.0)), cloud_material)
 		cloud.position = pos
 		clouds.append(cloud)
@@ -46,7 +46,7 @@ func _quad(size: Vector2, material: Material) -> MeshInstance3D:
 func _process(delta: float) -> void:
 	elapsed += delta
 	for i in range(clouds.size()):
-		clouds[i].position = origins[i] + Vector3(sin(elapsed * 0.014 + i) * 9.0, 0, 0)
+		clouds[i].position = origins[i] + Vector3(sin(elapsed * 0.028 + i * 0.35) * 15.0, 0, cos(elapsed * 0.019 + i * 0.3) * 4.0)
 	var cam := get_viewport().get_camera_3d()
 	if cam != null and sun_glow != null:
 		sun_glow.global_position = cam.global_position + sun_direction * 62.0

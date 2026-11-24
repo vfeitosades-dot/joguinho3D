@@ -81,6 +81,25 @@ handle_fitting={
 "electric-fastback":(.88,-.10,1880),
 "luxury-suv":(1.04,-.12,2320),
 "luxury-limousine":(.98,.10,2180)}
+def window_plane(raw):
+    n=struct.unpack_from("<I",raw,12)[0]
+    j=json.loads(raw[20:20+n]); payload=raw[28+n:]
+    def read(i):
+        a=j["accessors"][i];v=j["bufferViews"][a["bufferView"]]
+        return np.ndarray((a["count"],3),dtype="<f4",buffer=payload,offset=v.get("byteOffset",0)+a.get("byteOffset",0),strides=(v.get("byteStride",12),4)).copy()
+    pts=[]; normals=[]
+    for prim in j["meshes"][0]["primitives"]:
+        if j["materials"][prim["material"]]["name"]=="Glass":
+            pts.append(read(prim["attributes"]["POSITION"]))
+            normals.append(read(prim["attributes"]["NORMAL"]))
+    x=np.concatenate(pts); normal=np.concatenate(normals)
+    selected=x[(x[:,0]>.25)&(normal[:,0]>.5)&(np.abs(normal[:,0])>np.abs(normal[:,2]))]
+    assert len(selected)>20
+    center=selected.mean(0)
+    _,_,axes=np.linalg.svd(selected-center,full_matrices=False)
+    direction=axes[-1]*np.sign(axes[-1,0])
+    print("WINDOW_PLANE",center,direction)
+    return [float(y) for y in np.concatenate((center,direction))]
 catalog=[]
 for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     url="https://models.vinish.dev/realistic-cars/"+name+".glb"
@@ -90,7 +109,7 @@ for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     (assets/(name+".glbdata")).write_bytes(compact_glb(raw,name,l))
     hy,hz,py,pz,gr=fitting[name]
     handle_y,handle_z,mass=handle_fitting[name]
-    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz,hip_y=hy,hip_z=hz,pedal_y=py,pedal_z=pz,grip_radius=gr,handle_y=handle_y,handle_z=handle_z,mass=mass))
+    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz,hip_y=hy,hip_z=hz,pedal_y=py,pedal_z=pz,grip_radius=gr,handle_y=handle_y,handle_z=handle_z,mass=mass,glass_plane=window_plane(raw)))
     print("VERIFIED",name,len(raw))
 (assets/"catalog.json").write_text(json.dumps(catalog))
 rng=np.random.default_rng(4242)
@@ -141,7 +160,7 @@ with wave.open(str(assets/"impact.wav"),"wb") as out:
     out.setnchannels(1);out.setsampwidth(2);out.setframerate(rate);out.writeframes(np.clip(impact*28000,-32767,32767).astype("<i2").tobytes())
 preset=project/"export_presets.cfg"
 preset.write_text(preset.read_text().replace("*.glbdata, CREDITS.txt","*.glbdata, *.json, CREDITS.txt"))
-for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd"),("dashboard.gd","dashboard.gd"),("motion_loader.gd","motion_loader.gd"),("sky_fx.gd","sky_fx.gd")]:
+for src,dest in [("garage.gd","main.gd"),("vehicle.gd","vehicle.gd"),("wall_touch.gd","wall_touch.gd"),("dashboard.gd","dashboard.gd"),("motion_loader.gd","motion_loader.gd"),("sky_fx.gd","sky_fx.gd"),("glass_reflection.gd","glass_reflection.gd"),("player_glass.gdshader","player_glass.gdshader")]:
     shutil.copyfile(base/src,project/"scripts"/dest)
 settings=project/"project.godot"
 s=settings.read_text().replace('viewport_width=1280','viewport_width=1280').replace('viewport_height=720','viewport_height=720').replace('window/stretch/mode="canvas_items"','window/stretch/mode="viewport"')

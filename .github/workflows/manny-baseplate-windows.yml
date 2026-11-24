@@ -45,6 +45,8 @@ jobs:
           grep -F 'MANNY_READY: 9 clips' /tmp/manny-test.log
           grep -F 'GARAGE_READY: 7 cars' /tmp/manny-test.log
           grep -F 'REFLECTION_MATERIAL_TEST_OK' /tmp/manny-test.log
+          grep -F 'WHEEL_GEOMETRY_TEST_OK' /tmp/manny-test.log
+          grep -F 'PLAYER_REFLECTION_TEST_OK' /tmp/manny-test.log
           grep -F 'GARAGE_TEST_OK' /tmp/manny-test.log
           grep -F 'DOORS_TEST_OK' /tmp/manny-test.log
           grep -F 'SEATING_TEST_OK' /tmp/manny-test.log
@@ -63,6 +65,7 @@ jobs:
           xvfb-run -a godot --path GODOT_BASEPLATE --rendering-method gl_compatibility --audio-driver Dummy --quit-after 20000 -- --garage-test 2>&1 | tee /tmp/manny-graphics.log
           grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-graphics.log
           grep -F 'REFLECTION_MATERIAL_TEST_OK' /tmp/manny-graphics.log
+          grep -F 'PLAYER_REFLECTION_TEST_OK' /tmp/manny-graphics.log
       - name: Compilar para Windows
         run: |
           mkdir -p build/manny
@@ -91,16 +94,16 @@ jobs:
           $p = Start-Process -FilePath (Resolve-Path "build/manny/Baseplate_Manny.exe") -ArgumentList @("--headless","--log-file","motorlab-test.log","--quit-after","20000","--","--garage-test") -Wait -PassThru
           Get-Content motorlab-test.log
           if ($p.ExitCode -ne 0) { throw "EXE exit code $($p.ExitCode)" }
-          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","REFLECTION_MATERIAL_TEST_OK","GARAGE_TEST_OK","DOORS_TEST_OK","SEATING_TEST_OK","DRIVING_PHYSICS_TEST_OK","IMPACT_TEST_OK","DAMAGE_IMPULSE_TEST_OK","CAR_TRANSITION_TEST_OK","WALL_TOUCH_TEST_OK")) {
+          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","REFLECTION_MATERIAL_TEST_OK","WHEEL_GEOMETRY_TEST_OK","PLAYER_REFLECTION_TEST_OK","GARAGE_TEST_OK","DOORS_TEST_OK","SEATING_TEST_OK","DRIVING_PHYSICS_TEST_OK","IMPACT_TEST_OK","DAMAGE_IMPULSE_TEST_OK","CAR_TRANSITION_TEST_OK","WALL_TOUCH_TEST_OK")) {
             if (-not (Select-String -Path motorlab-test.log -SimpleMatch $marker -Quiet)) { throw "Missing $marker" }
           }
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v13-reflections
-          name: "Motor Lab V13 - Glass & Reflections"
+          tag_name: baseplate-manny-v14-live-glass
+          name: "Motor Lab V14 - Live Glass & Wheels"
           body: |
-            Reflexos do ceu HDRI em vidros transparentes e pintura polida, materiais PBR ajustados nos sete carros, sem ray tracing. Mantem as melhorias da V12.
+            Reflexo planar do personagem nos vidros laterais proximos, nuvens em movimento, eixos independentes e raios medidos dos pneus nos sete carros. Mantem OpenGL Compatibility.
             Sete carros, nove animacoes do Manny e interacao ambiental com parede.
             Testes de renderizacao OpenGL em Linux e executavel Windows headless.
             Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.
