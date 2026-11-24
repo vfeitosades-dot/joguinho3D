@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 import io, struct
 from doors import split_door
+from damage_shapes import add_damage_shapes
 project=pathlib.Path("GODOT_BASEPLATE")
 base=pathlib.Path("MANNY_BUILD")
 assets=project/"assets/garage"
@@ -15,11 +16,12 @@ data=[
 ("luxury-limousine","Luxury Limousine","24e1f842ff96a02e149367f7cc8776ef4d7e05d20f7ec94f6845887077effaab",2.30,5.49,1.64,.39,24,4.2,.40,.20,.13),
 ("luxury-suv","Luxury SUV","40990c9f7c06e5407d8f52186ec2a393322e339acfaf88cd8a50e382daa5f8b8",2.35,4.96,1.85,.39,22,4.7,.41,.27,-.11),
 ("electric-fastback","Electric Fastback","d7dae8863d0b6fc4fd42a6201b19f86cb67f3e3497fbe385d602396941939929",2.10,4.60,1.40,.345,28,7.0,.37,.04,-.08)]
-def compact_glb(raw,name):
+def compact_glb(raw,name,length):
     n=struct.unpack_from("<I",raw,12)[0]
     j=json.loads(raw[20:20+n])
     payload=bytearray(raw[28+n:])
     split_door(j,payload,name)
+    add_damage_shapes(j,payload,length)
     # Preserve geometry, materials, nodes, UVs and original image indices.
     for img in j.get("images",[]):
         if "bufferView" not in img: continue
@@ -44,8 +46,8 @@ def compact_glb(raw,name):
         m.pop("occlusionTexture",None)
         if m.get("name","").startswith("Paint"):
             surface=m.setdefault("pbrMetallicRoughness",{})
-            surface["roughnessFactor"]=min(float(surface.get("roughnessFactor",1.0)),.29)
-            surface["metallicFactor"]=max(.40,float(surface.get("metallicFactor",0.0)))
+            surface["roughnessFactor"]=min(float(surface.get("roughnessFactor",1.0)),.20)
+            surface["metallicFactor"]=max(.32,float(surface.get("metallicFactor",0.0)))
             # Avoid requiring an additional clearcoat shader on integrated graphics.
 
     encoded=json.dumps(j,separators=(",",":")).encode()
@@ -60,15 +62,24 @@ fitting={
 "electric-fastback":(.635,-.16,.35,.82,.178),
 "luxury-suv":(.875,-.13,.53,.84,.190),
 "luxury-limousine":(.690,.12,.36,1.15,.200)}
+handle_fitting={
+"sport-sedan":(.86,-.10,1490),
+"grand-tourer":(.79,-.60,1720),
+"muscle-coupe":(.80,-.60,1770),
+"hot-hatchback":(.87,-.12,1330),
+"electric-fastback":(.88,-.10,1880),
+"luxury-suv":(1.04,-.12,2320),
+"luxury-limousine":(.98,.10,2180)}
 catalog=[]
 for name,title,sha,w,l,h,r,top,accel,sx,sy,sz in data:
     url="https://models.vinish.dev/realistic-cars/"+name+".glb"
     req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0"})
     raw=urllib.request.urlopen(req,timeout=120).read()
     assert hashlib.sha256(raw).hexdigest()==sha, "Asset differs from uploaded model: "+name
-    (assets/(name+".glbdata")).write_bytes(compact_glb(raw,name))
+    (assets/(name+".glbdata")).write_bytes(compact_glb(raw,name,l))
     hy,hz,py,pz,gr=fitting[name]
-    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz,hip_y=hy,hip_z=hz,pedal_y=py,pedal_z=pz,grip_radius=gr))
+    handle_y,handle_z,mass=handle_fitting[name]
+    catalog.append(dict(file=name,title=title,width=w,length=l,height=h,radius=r,top=top,accel=accel,seat_x=sx,seat_y=sy,seat_z=sz,hip_y=hy,hip_z=hz,pedal_y=py,pedal_z=pz,grip_radius=gr,handle_y=handle_y,handle_z=handle_z,mass=mass))
     print("VERIFIED",name,len(raw))
 (assets/"catalog.json").write_text(json.dumps(catalog))
 rng=np.random.default_rng(4242)
@@ -122,5 +133,5 @@ preset.write_text(preset.read_text().replace("debug/export_console_wrapper=1","d
 credits=project/"CREDITS.txt"
 with credits.open("a") as f:
     f.write("\nMotor Lab cars: vinish.dev (https://vinish.dev/free-3d-models/realistic-cars), CC BY 4.0.\n")
-    for item in catalog: f.write(item["title"]+" by vinish.dev; GLB adapted: textures capped at 512px, simplified material maps, polished paint, approximate extracted driver door, wheel and steering motion.\n")
+    for item in catalog: f.write(item["title"]+" by vinish.dev; GLB adapted: textures capped at 512px, simplified material maps, polished paint, front/rear localized deformation shapes, approximate extracted driver door, wheel and steering motion.\n")
     f.write("https://creativecommons.org/licenses/by/4.0/\nOriginal synthetic engine loop.\n")

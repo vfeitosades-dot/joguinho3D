@@ -3,6 +3,8 @@ extends RefCounted
 static func load_pack(anim: AnimationPlayer, skeleton: Skeleton3D, clips: Dictionary) -> Dictionary:
 	var path := OS.get_executable_path().get_base_dir().path_join("MotionSmith_manny.json")
 	if not FileAccess.file_exists(path):
+		path = "user://MotionSmith_manny.json"
+	if not FileAccess.file_exists(path):
 		path = "res://assets/manny/MotionSmith_manny.json"
 	if not FileAccess.file_exists(path):
 		print("MOTIONSMITH_OPTIONAL: place MotionSmith_manny.json beside the EXE")

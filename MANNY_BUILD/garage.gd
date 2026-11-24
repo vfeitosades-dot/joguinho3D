@@ -176,6 +176,40 @@ func _test() -> void:
 		get_tree().quit(15)
 		return
 	print("IMPACT_TEST_OK")
+	var sample := cars[0]
+	if sample.get("body_mesh") == null:
+		push_error("Damage morph not loaded")
+		get_tree().quit(16)
+		return
+	sample.set("impact_cooldown", 0.0)
+	sample.call("_register_impact", 12.0, -sample.global_basis.z)
+	for i in range(18):
+		await get_tree().physics_frame
+	if float(sample.get("front_dent")) < 0.1:
+		get_tree().quit(17)
+		return
+	sample.call("reset_motion")
+	var second := cars[1]
+	second.call("reset_motion")
+	sample.set("road_velocity", sample.global_basis.z * 6.0)
+	sample.call("_resolve_contact", -sample.global_basis.z, sample.global_position + sample.global_basis.z * 2.0, second)
+	if (second.get("road_velocity") as Vector3).length() < 0.4:
+		get_tree().quit(18)
+		return
+	sample.call("reset_motion")
+	second.call("reset_motion")
+	print("DAMAGE_IMPULSE_TEST_OK")
+	# Exercise the full door reach / sit / exit sequence, not only the instant test route.
+	player.global_position = sample.to_global(Vector3(float(sample.get("width")) * 0.5 + 0.5, 0.04, 0))
+	await _enter(sample)
+	if active != sample or locked:
+		get_tree().quit(19)
+		return
+	await _exit()
+	if active != null or locked:
+		get_tree().quit(20)
+		return
+	print("CAR_TRANSITION_TEST_OK")
 	if active != null or not player.is_physics_processing():
 		get_tree().quit(4)
 		return
@@ -432,7 +466,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V10", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V11", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -484,7 +518,7 @@ func _apply_quality(mode: int) -> void:
 		sky_mat.sky_horizon_color = Color(0.78, 0.88, 0.97)
 		sky_mat.sun_angle_max = 8.0
 		sky_quality.sky_material = sky_mat
-		sky_quality.radiance_size = Sky.RADIANCE_SIZE_32
+		sky_quality.radiance_size = Sky.RADIANCE_SIZE_64
 	var env := world_env.environment
 	env.sky = sky_quality if mode >= 1 else null
 	env.background_mode = Environment.BG_SKY if mode >= 1 else Environment.BG_COLOR
@@ -575,6 +609,16 @@ func _clip_duration(name: String, fallback: float) -> float:
 		return fallback
 	return clampf(anim.get_animation(clips[name]).length, 0.5, 2.5)
 
+func _animate_phase(duration: float, update: Callable) -> void:
+	var elapsed: float = 0.0
+	update.call(0.0, 0.0)
+	while elapsed < duration:
+		await get_tree().physics_frame
+		var step: float = get_physics_process_delta_time()
+		elapsed = minf(elapsed + step, duration)
+		var t: float = elapsed / maxf(duration, 0.001)
+		update.call(t * t * (3.0 - 2.0 * t), step)
+
 func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 	active = car
 	locked = true
@@ -588,37 +632,36 @@ func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 	var rig := player.get("wall_touch") as Node
 	rig.call("release_now")
 	car.call("reset_motion")
+	car.set("transition_locked", true)
 	var anchor: Vector3 = car.get("hip_anchor")
-	var approach: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.43, 0.04, anchor.z + 0.12))
-	var sill: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.35, 0.15, anchor.z))
+	var approach: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.39, 0.04, anchor.z - 0.04))
 	var destination: Vector3 = car.call("seat_world")
 	if not immediate:
-		var heading: Vector3 = (approach - player.global_position).normalized()
+		var start: Vector3 = player.global_position
+		var heading: Vector3 = (approach - start).normalized()
 		player.call("_play", "walk")
 		var target_yaw: float = atan2(-heading.x, -heading.z)
-		var walk := create_tween().set_parallel(true)
-		walk.tween_property(player, "global_position", approach, clampf(player.global_position.distance_to(approach) / 1.6, 0.22, 1.4)).set_trans(Tween.TRANS_SINE)
-		walk.tween_property(body, "rotation:y", body.rotation.y + angle_difference(body.rotation.y, target_yaw), 0.24)
-		await walk.finished
+		var start_yaw: float = body.global_rotation.y
+		await _animate_phase(clampf(start.distance_to(approach) / 1.5, 0.18, 1.35), func(t: float, _dt: float):
+			player.global_position = start.lerp(approach, t)
+			body.global_rotation.y = lerp_angle(start_yaw, target_yaw, t))
 		player.call("_play", "idle")
-		car.call("set_door", true)
-		await get_tree().create_timer(0.30).timeout
 		player.global_rotation = car.global_rotation
 		body.rotation.y = PI / 2.0
+		await _animate_phase(0.27, func(t: float, dt: float): rig.call("door_pose", car, false, t, dt))
+		car.call("set_door", true)
+		await _animate_phase(0.45, func(t: float, dt: float): rig.call("door_pose", car, false, 1.0 - t * 0.25, dt))
+		rig.call("release_now")
 		player.call("_play", "enter")
-		var duration: float = _clip_duration("enter", 1.1)
-		var start_hips: Vector3 = rig.call("hips_world")
-		var bend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		bend.tween_property(player, "global_position", sill, duration * 0.40)
-		bend.parallel().tween_property(body, "rotation:y", PI, duration * 0.72)
-		bend.parallel().tween_property(body, "scale", Vector3.ONE * seated_scale, duration * 0.80)
-		await bend.finished
-		var settle := create_tween()
-		settle.tween_method(func(t: float):
-			var hips: Vector3 = rig.call("hips_world")
-			var desired: Vector3 = hips.lerp(destination, t)
-			rig.call("align_hips", desired, 1.0), 0.0, 1.0, duration * 0.35)
-		await settle.finished
+		var duration: float = _clip_duration("enter", 1.35)
+		var hips_start: Vector3 = rig.call("hips_world")
+		var threshold: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.37, anchor.y + 0.13, anchor.z - 0.06))
+		await _animate_phase(duration, func(t: float, _dt: float):
+			# A curved pelvis path passes the sill before settling into the seat.
+			var pos: Vector3 = hips_start.lerp(threshold, t / 0.44) if t < 0.44 else threshold.lerp(destination, (t - 0.44) / 0.56)
+			body.rotation.y = lerp_angle(PI / 2.0, PI, t)
+			body.scale = Vector3.ONE * lerpf(1.0, seated_scale, t)
+			rig.call("align_hips", pos, 1.0))
 	else:
 		car.call("set_door", true)
 		player.global_rotation = car.global_rotation
@@ -631,11 +674,14 @@ func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 		anim.advance(0.0)
 	rig.call("align_hips", destination, 1.0)
 	if not immediate:
-		for i in range(12):
-			await get_tree().physics_frame
+		car.call("set_door", false)
+		await _animate_phase(0.48, func(t: float, dt: float):
 			rig.call("align_hips", car.call("seat_world"), 1.0)
-			rig.call("drive_pose", car, 1.0 / 60.0, float(i + 1) / 12.0)
+			rig.call("drive_pose", car, dt, t)
+			if t < 0.5:
+				rig.call("door_pose", car, true, 1.0 - t * 1.6, dt))
 	car.call("set_door", false)
+	car.set("transition_locked", false)
 	camera.set("target", car)
 	camera.set("distance", 6.1)
 	camera.set("yaw", car.rotation.y + PI)
@@ -658,33 +704,46 @@ func _exit(immediate: bool = false) -> void:
 	car.set("occupied", false)
 	car.call("reset_motion")
 	car.call("stop_engine")
-	car.call("set_door", true)
+	car.set("transition_locked", true)
 	var body := player.get("_body_visual") as Node3D
 	var rig := player.get("wall_touch") as Node
-	rig.call("release_now")
 	var anchor: Vector3 = car.get("hip_anchor")
-	var exit_pos: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.65, 0.04, anchor.z))
+	var exit_pos: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.63, 0.04, anchor.z))
 	if not immediate:
-		await get_tree().create_timer(0.28).timeout
+		rig.call("release_now")
+		await _animate_phase(0.24, func(t: float, dt: float): rig.call("door_pose", car, true, t, dt))
+		car.call("set_door", true)
+		await _animate_phase(0.38, func(t: float, dt: float): rig.call("door_pose", car, true, 1.0 - t * 0.6, dt))
+		rig.call("release_now")
+		var seated_hips: Vector3 = rig.call("hips_world")
 		player.call("_play", "exit")
-		var duration: float = _clip_duration("exit", 1.0)
-		var tween := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
-		tween.tween_property(player, "global_position", exit_pos, duration)
-		tween.tween_property(body, "scale", Vector3.ONE, duration * 0.85)
-		tween.tween_property(body, "rotation:y", PI / 2.0, duration * 0.8)
-		await tween.finished
+		var duration: float = _clip_duration("exit", 1.25)
+		var sill: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.37, anchor.y + 0.13, anchor.z))
+		var standing_hips: Vector3 = exit_pos + Vector3.UP * 0.82
+		await _animate_phase(duration, func(t: float, _dt: float):
+			var pos: Vector3 = seated_hips.lerp(sill, t / 0.48) if t < 0.48 else sill.lerp(standing_hips, (t - 0.48) / 0.52)
+			body.rotation.y = lerp_angle(PI, PI / 2.0, t)
+			body.scale = Vector3.ONE * lerpf(seated_scale, 1.0, t)
+			rig.call("align_hips", pos, 1.0))
 	else:
-		player.global_position = exit_pos
+		rig.call("release_now")
+	player.global_position = exit_pos
 	body.scale = Vector3.ONE
 	body.rotation = Vector3(0.0, car.rotation.y + PI / 2.0, 0.0)
-	car.call("set_door", false)
-	active = null
 	player.global_rotation = Vector3.ZERO
+	player.call("_play", "idle")
+	if not immediate:
+		await _animate_phase(0.24, func(t: float, dt: float): rig.call("door_pose", car, false, t, dt))
+		car.call("set_door", false)
+		await _animate_phase(0.34, func(t: float, dt: float): rig.call("door_pose", car, false, 1.0 - t, dt))
+	rig.call("release_now")
+	car.call("set_door", false)
+	car.set("transition_locked", false)
+	active = null
 	player.collision_layer = 1
 	player.collision_mask = 1
 	player.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
 	player.reset_physics_interpolation()
-	player.call("_play", "idle")
 	player.set_physics_process(true)
 	camera.set("target", player)
 	camera.set("distance", 4.0)

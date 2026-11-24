@@ -45,10 +45,20 @@ var impact_player: AudioStreamPlayer3D
 var impact_count: int = 0
 var impact_direction: Vector3 = Vector3.ZERO
 var filtered_accel: float = 0.0
+var vehicle_mass: float = 1450.0
+var crash_yaw: float = 0.0
+var body_mesh: MeshInstance3D
+var front_dent: float = 0.0
+var rear_dent: float = 0.0
+var door_handle: Node3D
+var cabin_handle: Node3D
+var transition_locked: bool = false
+var damage_goal: Vector2 = Vector2.ZERO
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
 	width = data["width"]
+	vehicle_mass = float(data.get("mass", 1450.0))
 	length = data["length"]
 	radius = data["radius"]
 	max_speed = data["top"]
@@ -71,6 +81,9 @@ func setup(path: String, data: Dictionary) -> bool:
 		push_error("CAR_SCENE_FAILED " + path)
 		return false
 	visual.add_child(model)
+	body_mesh = _part(model, "Body") as MeshInstance3D
+	if body_mesh == null or body_mesh.get_blend_shape_count() < 2:
+		body_mesh = _find_damage_mesh(model)
 	for name_part in ["Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR"]:
 		var wheel := _part(model, name_part)
 		if wheel == null:
@@ -83,6 +96,13 @@ func setup(path: String, data: Dictionary) -> bool:
 	if door == null:
 		push_error("Missing driver door " + title)
 		return false
+	# Attach targets to the moving door, so the hand follows its opening arc.
+	door_handle = Node3D.new()
+	door.add_child(door_handle)
+	door_handle.position = door.to_local(visual.to_global(Vector3(width * 0.435, float(data["handle_y"]), float(data["handle_z"]))))
+	cabin_handle = Node3D.new()
+	door.add_child(cabin_handle)
+	cabin_handle.position = door_handle.position + Vector3(-0.095, -0.055, 0.06)
 	steering_wheel = _part(model, "Steering_Wheel")
 	if steering_wheel != null:
 		steering_basis = steering_wheel.basis
@@ -118,6 +138,19 @@ func setup(path: String, data: Dictionary) -> bool:
 	add_child(impact_player)
 	reset_physics_interpolation()
 	return true
+
+func _find_damage_mesh(node: Node) -> MeshInstance3D:
+	if node is MeshInstance3D and node.get_blend_shape_count() >= 2:
+		return node as MeshInstance3D
+	for child in node.get_children():
+		var found := _find_damage_mesh(child)
+		if found != null:
+			return found
+	return null
+
+func handle_world(inside: bool) -> Vector3:
+	var marker := cabin_handle if inside else door_handle
+	return marker.get_global_transform_interpolated().origin if marker != null else global_position
 
 func _make_grip(local_pos: Vector3, label: String) -> Node3D:
 	var grip := Node3D.new()
@@ -194,6 +227,10 @@ func _physics_process(delta: float) -> void:
 		door.rotation.y = door_angle
 	impact_cooldown = maxf(0.0, impact_cooldown - delta)
 	impact_strength = move_toward(impact_strength, 0.0, delta * 2.6)
+	_update_damage(delta)
+	crash_yaw = move_toward(crash_yaw, 0.0, delta * 2.8)
+	if transition_locked:
+		return
 	# Parked vehicles are static after settling; avoid seven floor collision solves every tick.
 	if not occupied and road_velocity.length_squared() < 0.0001 and absf(visual.rotation.x) < 0.001 and absf(visual.rotation.z) < 0.001 and absf(visual.position.y) < 0.001 and is_on_floor():
 		return
@@ -211,7 +248,7 @@ func _physics_process(delta: float) -> void:
 	speed = road_velocity.dot(forward)
 	var reverse_brake: bool = gas * speed < -0.4
 	throttle = move_toward(throttle, absf(gas) if not reverse_brake and not braking else 0.0, delta * 3.8)
-	brake_pressure = move_toward(brake_pressure, 1.0 if braking or reverse_brake or not enabled else 0.0, delta * 5.0)
+	brake_pressure = move_toward(brake_pressure, 1.0 if braking or reverse_brake or (occupied and not enabled) else (0.28 if not occupied else 0.0), delta * 5.0)
 	var target_speed: float = gas * (max_speed if gas >= 0 else 6.0)
 	var drag: float = 0.38 + absf(speed) * 0.037 + speed * speed * 0.003
 	var traction: float = acceleration * (1.0 - 0.70 * clampf(absf(speed) / max_speed, 0.0, 1.0))
@@ -231,7 +268,7 @@ func _physics_process(delta: float) -> void:
 	yaw_rate = lerpf(yaw_rate, desired_yaw, 1.0 - exp(-7.0 * delta))
 	if absf(speed) < 0.12:
 		yaw_rate = 0.0
-	rotate_y(yaw_rate * delta)
+	rotate_y((yaw_rate + crash_yaw) * delta)
 	forward = global_transform.basis.z
 	right_axis = global_transform.basis.x
 	# Preserve momentum sideways, then recover grip progressively instead of snapping heading.
@@ -247,13 +284,7 @@ func _physics_process(delta: float) -> void:
 		var collision := get_slide_collision(k)
 		var n := collision.get_normal()
 		if absf(n.y) < 0.35:
-			var closing: float = maxf(0.0, -road_velocity.dot(n))
-			if closing > 1.4 and impact_cooldown <= 0.0:
-				_register_impact(closing, n)
-			# Preserve tangential momentum, damp the normal component and allow a small rebound.
-			road_velocity = road_velocity.slide(n) * 0.78 + n * minf(closing * 0.10, 0.8)
-			yaw_rate *= 0.65
-			road_velocity = road_velocity.limit_length(max_speed)
+			_resolve_contact(n, collision.get_position(), collision.get_collider())
 	if absf(global_position.x) > 46.0 or absf(global_position.z) > 46.0:
 		var boundary_normal := Vector3.ZERO
 		if absf(global_position.x) > 46.0:
@@ -300,11 +331,66 @@ func _physics_process(delta: float) -> void:
 		motor.pitch_scale = 0.70 + absf(speed) / max_speed * 0.95 + throttle * 0.20
 		motor.volume_db = -23.0 + throttle * 10.0
 
+func _resolve_contact(surface_normal: Vector3, point: Vector3, other: Object) -> void:
+	var n := Vector3(surface_normal.x, 0.0, surface_normal.z).normalized()
+	if n.length_squared() < 0.1:
+		return
+	var moving_other: Vector3 = Vector3.ZERO
+	var other_mass: float = 0.0
+	var other_car := other as Node3D
+	if other_car != null and other_car.has_method("receive_car_impulse") and not bool(other_car.get("transition_locked")):
+		moving_other = other_car.get("road_velocity")
+		other_mass = float(other_car.get("vehicle_mass"))
+	var closing: float = maxf(0.0, -(road_velocity - moving_other).dot(n))
+	if closing <= 0.02:
+		return
+	var inv_mass: float = 1.0 / vehicle_mass
+	var inv_other: float = 1.0 / other_mass if other_mass > 0.0 else 0.0
+	var restitution: float = 0.14 if other_mass > 0.0 else 0.10
+	var impulse: float = (1.0 + restitution) * closing / (inv_mass + inv_other)
+	var impulse_vec := n * impulse
+	road_velocity += impulse_vec * inv_mass
+	var tangent := road_velocity.slide(n)
+	road_velocity -= tangent * clampf(closing * 0.015, 0.0, 0.24)
+	road_velocity = road_velocity.limit_length(max_speed)
+	_apply_crash_rotation(impulse_vec, point)
+	if other_mass > 0.0:
+		other_car.call("receive_car_impulse", -impulse_vec, point, closing)
+	if closing > 1.4 and impact_cooldown <= 0.0:
+		_register_impact(closing, n)
+
+func receive_car_impulse(impulse: Vector3, point: Vector3, closing: float) -> void:
+	road_velocity += impulse / vehicle_mass
+	road_velocity = road_velocity.limit_length(max_speed)
+	_apply_crash_rotation(impulse, point)
+	if closing > 1.4 and impact_cooldown <= 0.0:
+		_register_impact(closing, impulse.normalized())
+
+func _apply_crash_rotation(impulse: Vector3, point: Vector3) -> void:
+	var lever: Vector3 = point - global_position
+	var inertia: float = vehicle_mass * (width * width + length * length) / 12.0
+	crash_yaw = clampf(crash_yaw + lever.cross(impulse).y / maxf(inertia, 1.0) * 0.52, -1.25, 1.25)
+
+func _update_damage(delta: float) -> void:
+	if body_mesh == null:
+		return
+	if absf(front_dent - damage_goal.x) > 0.001:
+		front_dent = lerpf(front_dent, damage_goal.x, 1.0 - exp(-30.0 * delta))
+		body_mesh.set_blend_shape_value(0, front_dent)
+	if absf(rear_dent - damage_goal.y) > 0.001:
+		rear_dent = lerpf(rear_dent, damage_goal.y, 1.0 - exp(-30.0 * delta))
+		body_mesh.set_blend_shape_value(1, rear_dent)
+
 func _register_impact(closing: float, surface_normal: Vector3) -> void:
 	impact_count += 1
 	impact_cooldown = 0.25
 	impact_strength = clampf(closing / 10.0, 0.12, 1.0)
 	impact_direction = global_basis.inverse() * surface_normal
+	var amount: float = clampf((closing - 2.2) / 15.0, 0.0, 0.55)
+	if impact_direction.z < -0.50:
+		damage_goal.x = clampf(damage_goal.x + amount, 0.0, 1.0)
+	elif impact_direction.z > 0.50:
+		damage_goal.y = clampf(damage_goal.y + amount, 0.0, 1.0)
 	pitch_velocity += impact_direction.z * impact_strength * 0.9
 	roll_velocity += impact_direction.x * impact_strength * 0.8
 	heave_velocity -= impact_strength * 0.12
@@ -314,6 +400,7 @@ func _register_impact(closing: float, surface_normal: Vector3) -> void:
 		impact_player.play()
 
 func reset_motion() -> void:
+	crash_yaw = 0.0
 	speed = 0.0
 	road_velocity = Vector3.ZERO
 	velocity = Vector3.ZERO

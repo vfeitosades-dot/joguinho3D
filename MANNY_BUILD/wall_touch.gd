@@ -199,3 +199,18 @@ func drive_pose(car: Node3D, delta: float, amount: float = 1.0) -> void:
 		var target: Vector3 = car.call("pedal_world", i == 0)
 		leg_markers[i].global_position = leg_markers[i].global_position.lerp(target, 1.0 - exp(-15.0 * delta))
 		leg_solvers[i].influence = _ease(amount) * 0.85
+
+func door_pose(car: Node3D, inside: bool, amount: float, delta: float) -> void:
+	if solvers.size() != 2:
+		return
+	var target: Vector3 = car.call("handle_world", inside)
+	var shoulder: Vector3 = _world(shoulders[0])
+	target = shoulder + (target - shoulder).limit_length(reaches[0] * 0.98)
+	_set_arm(0, target, clampf(amount, 0.0, 1.0), delta)
+
+func fade_door(amount: float) -> void:
+	if solvers.size() != 2:
+		return
+	solvers[0].influence = _ease(clampf(amount, 0.0, 1.0))
+	if amount <= 0.001 and solvers[0].is_running():
+		solvers[0].stop()
