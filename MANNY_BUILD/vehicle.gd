@@ -54,6 +54,9 @@ var door_handle: Node3D
 var cabin_handle: Node3D
 var transition_locked: bool = false
 var damage_goal: Vector2 = Vector2.ZERO
+var reflective_glass_count: int = 0
+var reflective_paint_count: int = 0
+var tuned_materials: Dictionary = {}
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
@@ -81,6 +84,8 @@ func setup(path: String, data: Dictionary) -> bool:
 		push_error("CAR_SCENE_FAILED " + path)
 		return false
 	visual.add_child(model)
+	_polish_surfaces(model)
+	print("REFLECTIVE_MATERIALS: ", title, " glass=", reflective_glass_count, " paint=", reflective_paint_count)
 	body_mesh = _part(model, "Body") as MeshInstance3D
 	if body_mesh == null or body_mesh.get_blend_shape_count() < 2:
 		body_mesh = _find_damage_mesh(model)
@@ -138,6 +143,50 @@ func setup(path: String, data: Dictionary) -> bool:
 	add_child(impact_player)
 	reset_physics_interpolation()
 	return true
+
+func _polish_surfaces(node: Node) -> void:
+	if node is MeshInstance3D:
+		var instance := node as MeshInstance3D
+		if instance.mesh != null:
+			for i in range(instance.mesh.get_surface_count()):
+				var original := instance.get_active_material(i) as BaseMaterial3D
+				if original == null:
+					continue
+				var label: String = original.resource_name.to_lower()
+				var glass: bool = label.begins_with("glass")
+				var paint: bool = label.begins_with("paint")
+				if not glass and not paint:
+					continue
+				var material: BaseMaterial3D
+				if tuned_materials.has(original):
+					material = tuned_materials[original]
+				else:
+					material = original.duplicate() as BaseMaterial3D
+					material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+					material.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+					material.metallic_texture = null
+					material.roughness_texture = null
+					if glass:
+						material.metallic = 0.0
+						material.metallic_specular = 0.68
+						material.roughness = 0.085
+						material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+						material.cull_mode = BaseMaterial3D.CULL_BACK
+						var tint: Color = material.albedo_color
+						tint.a = clampf(tint.a,0.32,0.53)
+						material.albedo_color = tint
+					else:
+						material.metallic = 0.38
+						material.metallic_specular = 0.58
+						material.roughness = 0.21
+					tuned_materials[original] = material
+				instance.set_surface_override_material(i,material)
+				if glass:
+					reflective_glass_count += 1
+				else:
+					reflective_paint_count += 1
+	for child in node.get_children():
+		_polish_surfaces(child)
 
 func _find_damage_mesh(node: Node) -> MeshInstance3D:
 	if node is MeshInstance3D and node.get_blend_shape_count() >= 2:

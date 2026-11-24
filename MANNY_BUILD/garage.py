@@ -44,11 +44,22 @@ def compact_glb(raw,name,length):
     for m in j.get("materials",[]):
         m.pop("normalTexture",None)
         m.pop("occlusionTexture",None)
-        if m.get("name","").startswith("Paint"):
+        name=m.get("name","").lower()
+        if name.startswith("paint"):
             surface=m.setdefault("pbrMetallicRoughness",{})
-            surface["roughnessFactor"]=min(float(surface.get("roughnessFactor",1.0)),.20)
-            surface["metallicFactor"]=max(.32,float(surface.get("metallicFactor",0.0)))
-            # Avoid requiring an additional clearcoat shader on integrated graphics.
+            surface["roughnessFactor"]=.21
+            surface["metallicFactor"]=.38
+            surface.pop("metallicRoughnessTexture",None)
+        elif name.startswith("glass"):
+            surface=m.setdefault("pbrMetallicRoughness",{})
+            surface["roughnessFactor"]=.085
+            surface["metallicFactor"]=.0
+            surface.pop("metallicRoughnessTexture",None)
+            base=surface.get("baseColorFactor",[.8,.85,.9,.4])
+            surface["baseColorFactor"]=[*base[:3],max(.32,min(.53,float(base[3])))]
+            m["alphaMode"]="BLEND"
+            m.pop("alphaCutoff",None)
+            m["doubleSided"]=False
 
     encoded=json.dumps(j,separators=(",",":")).encode()
     encoded+=b" "*((-len(encoded))%4)

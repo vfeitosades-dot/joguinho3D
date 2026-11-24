@@ -113,6 +113,12 @@ func _test() -> void:
 	if cars.size() != 7:
 		get_tree().quit(1)
 		return
+	for car in cars:
+		if int(car.get("reflective_glass_count")) <= 0 or int(car.get("reflective_paint_count")) <= 0:
+			push_error("Reflective glass or paint missing: " + str(car.name))
+			get_tree().quit(22)
+			return
+	print("REFLECTION_MATERIAL_TEST_OK")
 	var gesture := player.get("wall_touch") as Node
 	if gesture == null or gesture.get("ik") == null:
 		get_tree().quit(5)
@@ -307,13 +313,14 @@ func _create_world() -> void:
 	env.background_color = Color(0.61, 0.75, 0.90)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.89, 0.91, 0.97)
-	env.ambient_light_energy = 0.82
+	env.ambient_light_energy = 0.78
 	world_env.environment = env
 	add_child(world_env)
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-37, -38, 0)
 	sun.light_color = Color(1.0, 0.94, 0.81)
-	sun.light_energy = 1.25
+	sun.light_energy = 1.12
+	sun.light_specular = 0.65
 	sun.shadow_enabled = false
 	sun.directional_shadow_max_distance = 26.0
 	add_child(sun)
@@ -468,7 +475,7 @@ func _create_menu() -> void:
 	stack.add_theme_constant_override("separation", 12)
 	panel.add_child(stack)
 	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
-	stack.add_child(_label("DRIVING EXPERIENCE     •     V12", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V13", 14, Color(0.35, 0.81, 0.91)))
 	stack.add_child(HSeparator.new())
 	play_button = _menu_button("CARREGANDO VEÍCULOS…")
 	play_button.disabled = true
@@ -545,9 +552,10 @@ func _apply_quality(mode: int) -> void:
 			sky_mat.sky_horizon_color = Color(0.78, 0.88, 0.97)
 			sky_mat.sun_angle_max = 8.0
 			sky_quality.sky_material = sky_mat
-		sky_quality.radiance_size = Sky.RADIANCE_SIZE_64
+		sky_quality.radiance_size = Sky.RADIANCE_SIZE_128
 	var env := world_env.environment
 	env.sky = sky_quality
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.background_mode = Environment.BG_SKY
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if mode >= 1 else Environment.AMBIENT_SOURCE_COLOR
 	sun.shadow_enabled = mode == 2
