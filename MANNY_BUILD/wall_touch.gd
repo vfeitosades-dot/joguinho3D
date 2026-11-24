@@ -1,126 +1,135 @@
 extends Node
-
 var actor: CharacterBody3D
 var body: Node3D
 var skeleton: Skeleton3D
 var ik: SkeletonIK3D
-var marker: Node3D
-var shoulder: int = -1
-var hand: int = -1
-var elbow: int = -1
+var solvers: Array[SkeletonIK3D] = []
+var markers: Array[Node3D] = []
+var shoulders: Array[int] = []
+var hands: Array[int] = []
+var reaches: Array[float] = []
 var blend: float = 0.0
 var active_contact: bool = false
-var contact_point: Vector3
-var contact_wall: Node3D
-var contact_local: Vector3
-var has_target: bool = false
 var grace: float = 0.0
-var reach: float = 0.0
+var normal: Vector3 = Vector3.ZERO
+var point: Vector3
+var heading: Vector3 = Vector3.FORWARD
 
 func setup(character: CharacterBody3D, visual: Node3D, model: Node) -> void:
 	actor = character
 	body = visual
 	skeleton = _find_skeleton(model)
 	if skeleton == null:
-		push_warning("WALL_TOUCH: skeleton not found")
 		return
+	for side in ["r", "l"]:
+		var upper: int = _bone("upperarm_" + side)
+		var lower: int = _bone("lowerarm_" + side)
+		var hand: int = _bone("hand_" + side)
+		if mini(upper, mini(lower, hand)) < 0:
+			push_error("Missing arm " + side)
+			return
+		var target := Node3D.new()
+		target.name = "WallContact_" + side
+		actor.add_child(target)
+		target.top_level = true
+		target.global_position = _world(hand)
+		var solver := SkeletonIK3D.new()
+		solver.name = "ContactIK_" + side
+		solver.root_bone = skeleton.get_bone_name(upper)
+		solver.tip_bone = skeleton.get_bone_name(hand)
+		skeleton.add_child(solver)
+		solver.target_node = solver.get_path_to(target)
+		solver.override_tip_basis = false
+		solver.max_iterations = 12
+		solver.min_distance = 0.008
+		solver.influence = 0.0
+		solvers.append(solver)
+		markers.append(target)
+		shoulders.append(upper)
+		hands.append(hand)
+		reaches.append(_world(upper).distance_to(_world(lower)) + _world(lower).distance_to(_world(hand)))
+	ik = solvers[0]
+	print("WALL_TOUCH_READY: 2 hands")
+
+func _bone(prefix: String) -> int:
 	for i in range(skeleton.get_bone_count()):
-		var name_text: String = String(skeleton.get_bone_name(i)).to_lower()
-		if name_text.begins_with("upperarm_r_") or name_text == "upperarm_r":
-			shoulder = i
-		if name_text.begins_with("lowerarm_r_") or name_text == "lowerarm_r":
-			elbow = i
-		if name_text.begins_with("hand_r_") or name_text == "hand_r":
-			hand = i
-	if shoulder < 0 or elbow < 0 or hand < 0:
-		push_error("WALL_TOUCH: incomplete arm")
-		return
-	marker = Node3D.new()
-	marker.name = "WallContactTarget"
-	actor.add_child(marker)
-	marker.top_level = true
-	marker.global_position = _bone_world(hand)
-	ik = SkeletonIK3D.new()
-	ik.name = "WallArmIK"
-	ik.root_bone = skeleton.get_bone_name(shoulder)
-	ik.tip_bone = skeleton.get_bone_name(hand)
-	skeleton.add_child(ik)
-	ik.target_node = ik.get_path_to(marker)
-	ik.override_tip_basis = false
-	ik.max_iterations = 10
-	ik.min_distance = 0.008
-	ik.influence = 0.0
-	reach = _bone_world(shoulder).distance_to(_bone_world(elbow)) + _bone_world(elbow).distance_to(_bone_world(hand))
-	print("WALL_TOUCH_READY")
+		var n: String = String(skeleton.get_bone_name(i)).to_lower()
+		if n == prefix or n.begins_with(prefix + "_"):
+			return i
+	return -1
 
 func _find_skeleton(node: Node) -> Skeleton3D:
 	if node is Skeleton3D:
 		return node as Skeleton3D
 	for child in node.get_children():
-		var result := _find_skeleton(child)
-		if result != null:
-			return result
+		var found := _find_skeleton(child)
+		if found != null:
+			return found
 	return null
 
-func _bone_world(index: int) -> Vector3:
+func _world(index: int) -> Vector3:
 	return skeleton.to_global(skeleton.get_bone_global_pose(index).origin)
 
 func release_now() -> void:
 	active_contact = false
-	has_target = false
 	blend = 0.0
-	contact_wall = null
 	grace = 0.0
-	if ik != null:
-		ik.influence = 0.0
-		if ik.is_running():
-			ik.stop()
+	for solver in solvers:
+		solver.influence = 0.0
+		if solver.is_running():
+			solver.stop()
 
-func update_contact(delta: float, move_direction: Vector3) -> void:
-	if ik == null:
+func update_contact(delta: float, direction: Vector3) -> void:
+	if solvers.size() != 2:
 		return
-	var forward: Vector3 = -body.global_transform.basis.z
-	forward.y = 0
-	forward = forward.normalized()
-	var shoulder_pos := _bone_world(shoulder)
-	var arm_length: float = maxf(reach, shoulder_pos.distance_to(_bone_world(elbow)) + _bone_world(elbow).distance_to(_bone_world(hand)))
-	var origin := Vector3(shoulder_pos.x, shoulder_pos.y - 0.12, shoulder_pos.z)
-	var ray := PhysicsRayQueryParameters3D.create(origin, origin + forward * maxf(0.45, arm_length + 0.16))
-	ray.exclude = [actor.get_rid()]
-	ray.collide_with_areas = false
-	var result: Dictionary = actor.get_world_3d().direct_space_state.intersect_ray(ray)
+	if direction.length_squared() > 0.04:
+		heading = direction.normalized()
+	elif blend < 0.01:
+		heading = -body.global_transform.basis.z.normalized()
+	var lateral: Vector3 = heading.cross(Vector3.UP).normalized()
 	var valid: bool = false
-	if not result.is_empty() and actor.is_on_floor() and actor.velocity.y < 0.5 and not Input.is_action_pressed("sprint"):
-		var surface := result.get("collider") as Node3D
-		var normal: Vector3 = result["normal"]
-		var point: Vector3 = result["position"]
-		var wrist := point + normal * 0.075
-		if surface != null and surface.is_in_group("touch_wall") and absf(normal.y) < 0.15 and normal.dot(forward) < -0.65 and shoulder_pos.distance_to(wrist) < arm_length * (1.09 if has_target else 1.01) and (move_direction.length_squared() < 0.01 or move_direction.dot(forward) > 0.65):
-			valid = true
-			if not has_target or surface != contact_wall:
-				contact_wall = surface
-				contact_local = surface.to_local(wrist)
-				has_target = true
-				marker.global_position = _bone_world(hand)
-			var old_point: Vector3 = surface.to_global(contact_local)
-			if shoulder_pos.distance_to(old_point) > arm_length * 0.96:
-				contact_local = surface.to_local(wrist)
-			contact_point = surface.to_global(contact_local)
+	if actor.is_on_floor() and actor.velocity.y < 0.5 and not Input.is_action_pressed("sprint"):
+		var origin := actor.global_position + Vector3.UP * 1.12
+		for sign_value in [-1.0, 1.0]:
+			var ray := PhysicsRayQueryParameters3D.create(origin, origin + lateral * float(sign_value) * 0.73)
+			ray.exclude = [actor.get_rid()]
+			var hit := actor.get_world_3d().direct_space_state.intersect_ray(ray)
+			if hit.is_empty():
+				continue
+			var surface := hit["collider"] as Node3D
+			var n: Vector3 = hit["normal"]
+			if surface != null and surface.is_in_group("touch_wall") and absf(n.y) < 0.15 and absf(n.dot(heading)) < 0.45:
+				normal = n
+				point = hit["position"]
+				valid = true
+				break
 	if valid:
-		grace = 0.15
+		grace = 0.14
 	else:
 		grace = maxf(0.0, grace - delta)
-		if has_target and is_instance_valid(contact_wall) and actor.is_on_floor() and not Input.is_action_pressed("sprint") and grace > 0.0 and shoulder_pos.distance_to(contact_point) < arm_length * 1.12 and (move_direction.length_squared() < 0.01 or move_direction.dot(forward) > 0.65):
-			valid = true
+		valid = grace > 0.0 and actor.is_on_floor() and not Input.is_action_pressed("sprint")
 	if valid:
-		marker.global_position = marker.global_position.lerp(contact_point, 1.0 - exp(-13.0 * delta))
-		if not ik.is_running():
-			ik.start()
-		blend = move_toward(blend, 1.0, delta / 0.28)
+		# Keep the walking direction parallel to the wall; rotate upper body partly toward it.
+		var facing := (heading * 0.66 - normal * 0.75).normalized()
+		body.rotation.y = lerp_angle(body.rotation.y, atan2(-facing.x, -facing.z), 1.0 - exp(-9.0 * delta))
+		for i in range(2):
+			var shoulder := _world(shoulders[i])
+			var target: Vector3 = shoulder - normal * ((shoulder - point).dot(normal) - 0.075)
+			target.y = actor.global_position.y + 1.15 + float(i) * 0.07
+			target += heading * (0.18 if i == 0 else -0.18)
+			var offset := target - shoulder
+			if offset.length() > reaches[i] * 0.98:
+				target = shoulder + offset.normalized() * reaches[i] * 0.98
+			if not solvers[i].is_running():
+				markers[i].global_position = _world(hands[i])
+				solvers[i].start()
+			markers[i].global_position = markers[i].global_position.lerp(target, 1.0 - exp(-12.0 * delta))
+		blend = move_toward(blend, 1.0, delta / 0.30)
 	else:
-		blend = move_toward(blend, 0.0, delta / 0.23)
+		blend = move_toward(blend, 0.0, delta / 0.25)
 		if blend <= 0.0:
 			release_now()
 			return
 	active_contact = valid
-	ik.influence = blend * blend * (3.0 - 2.0 * blend)
+	for solver in solvers:
+		solver.influence = blend * blend * (3.0 - 2.0 * blend)

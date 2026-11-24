@@ -19,6 +19,9 @@ var steering_wheel: Node3D
 var steering_basis: Basis
 var motor: AudioStreamPlayer3D
 var shadow_mesh: MeshInstance3D
+var door: Node3D
+var door_angle: float = 0.0
+var door_goal: float = 0.0
 
 func setup(path: String, data: Dictionary) -> bool:
 	title = data["title"]
@@ -48,6 +51,10 @@ func setup(path: String, data: Dictionary) -> bool:
 			return false
 		wheels.append(wheel)
 		wheel_bases.append(wheel.basis)
+	door = _part(model, "DriverDoorPivot")
+	if door == null:
+		push_error("Missing driver door " + title)
+		return false
 	steering_wheel = _part(model, "Steering_Wheel")
 	if steering_wheel != null:
 		steering_basis = steering_wheel.basis
@@ -85,6 +92,9 @@ func _part(node: Node, wanted: String) -> Node3D:
 			return part
 	return null
 
+func set_door(opened: bool) -> void:
+	door_goal = -1.05 if opened else 0.0
+
 func _create_shadow() -> void:
 	shadow_mesh = MeshInstance3D.new()
 	var plane := PlaneMesh.new()
@@ -121,10 +131,13 @@ func stop_engine() -> void:
 func _physics_process(delta: float) -> void:
 	if visual == null:
 		return
+	if door != null:
+		door_angle = lerpf(door_angle, door_goal, 1.0 - exp(-7.0 * delta))
+		door.rotation.y = door_angle
 	var gas: float = 0.0
 	var turn: float = 0.0
 	var braking: bool = false
-	if occupied and engine_on:
+	if occupied and engine_on and not get_parent().get("menu_open"):
 		gas = Input.get_axis("move_backward", "move_forward")
 		turn = Input.get_axis("move_right", "move_left")
 		braking = Input.is_action_pressed("jump")

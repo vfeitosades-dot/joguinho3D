@@ -41,10 +41,11 @@ jobs:
         run: |
           set -o pipefail
           godot --headless --path GODOT_BASEPLATE --editor --quit
-          godot --headless --path GODOT_BASEPLATE --quit-after 600 -- --garage-test 2>&1 | tee /tmp/manny-test.log
+          godot --headless --path GODOT_BASEPLATE --quit-after 3600 -- --garage-test 2>&1 | tee /tmp/manny-test.log
           grep -F 'MANNY_READY: 9 clips' /tmp/manny-test.log
           grep -F 'GARAGE_READY: 7 cars' /tmp/manny-test.log
           grep -F 'GARAGE_TEST_OK' /tmp/manny-test.log
+          grep -F 'DOORS_TEST_OK' /tmp/manny-test.log
           grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-test.log
       - name: Validar renderizador OpenGL com tela virtual
         shell: bash
@@ -53,7 +54,7 @@ jobs:
           MESA_GL_VERSION_OVERRIDE: "3.3"
         run: |
           set -o pipefail
-          xvfb-run -a godot --path GODOT_BASEPLATE --rendering-method gl_compatibility --audio-driver Dummy --quit-after 1800 -- --garage-test 2>&1 | tee /tmp/manny-graphics.log
+          xvfb-run -a godot --path GODOT_BASEPLATE --rendering-method gl_compatibility --audio-driver Dummy --quit-after 3600 -- --garage-test 2>&1 | tee /tmp/manny-graphics.log
           grep -F 'WALL_TOUCH_TEST_OK' /tmp/manny-graphics.log
       - name: Compilar para Windows
         run: |
@@ -80,19 +81,19 @@ jobs:
       - name: Validar executavel Windows exportado
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath (Resolve-Path "build/manny/Baseplate_Manny.exe") -ArgumentList @("--headless","--log-file","motorlab-test.log","--quit-after","1800","--","--garage-test") -Wait -PassThru
+          $p = Start-Process -FilePath (Resolve-Path "build/manny/Baseplate_Manny.exe") -ArgumentList @("--headless","--log-file","motorlab-test.log","--quit-after","3600","--","--garage-test") -Wait -PassThru
           Get-Content motorlab-test.log
           if ($p.ExitCode -ne 0) { throw "EXE exit code $($p.ExitCode)" }
-          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","GARAGE_TEST_OK","WALL_TOUCH_TEST_OK")) {
+          foreach ($marker in @("MANNY_READY: 9 clips","GARAGE_READY: 7 cars","GARAGE_TEST_OK","DOORS_TEST_OK","WALL_TOUCH_TEST_OK")) {
             if (-not (Select-String -Path motorlab-test.log -SimpleMatch $marker -Quiet)) { throw "Missing $marker" }
           }
       - name: Publicar download direto
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: baseplate-manny-v6-compat
-          name: "Motor Lab V6 - Compatibilidade"
+          tag_name: baseplate-manny-v7-studio
+          name: "Motor Lab V7 - Studio"
           body: |
-            Carregamento gradual, materiais leves e modo OpenGL Compatibility por padrao.
+            Menu, tela cheia, resolucao HD e Full HD, duas maos na parede lateral e porta do motorista articulada (extracao aproximada da malha).
             Sete carros, nove animacoes do Manny e interacao ambiental com parede.
             Testes de renderizacao OpenGL em Linux e executavel Windows headless.
             Desempenho em Intel HD depende de driver e hardware; consulte CREDITS.txt.

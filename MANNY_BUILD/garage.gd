@@ -31,12 +31,18 @@ var world_env: WorldEnvironment
 var perf_timer: float = 0.0
 var loading: bool = true
 var sky_quality: Sky
+var menu_open: bool = false
+var menu: Control
+var play_button: Button
+var quality_select: OptionButton
+var testing: bool = false
 
 
 func _ready() -> void:
 	_create_world()
 	_create_ground()
 	_create_wall()
+	_create_details()
 	player = CharacterBody3D.new()
 	player.name = "Humanoide"
 	player.position = Vector3(0.0, 0.04, -6.0)
@@ -47,8 +53,15 @@ func _ready() -> void:
 	camera.set("target", player)
 	camera.current = true
 	add_child(camera)
+	testing = "--garage-test" in OS.get_cmdline_user_args()
 	_create_ui()
-	_apply_quality(0)
+	_create_menu()
+	_apply_quality(1)
+	quality_select.select(1)
+	if not testing:
+		get_window().mode = Window.MODE_FULLSCREEN
+		_show_menu(true)
+
 	player.set_physics_process(false)
 	_load_cars.call_deferred()
 
@@ -76,7 +89,9 @@ func _load_cars() -> void:
 		else:
 			car.queue_free()
 	loading = false
-	player.set_physics_process(true)
+	player.set_physics_process(not menu_open)
+	play_button.disabled = false
+	play_button.text = "JOGAR"
 	if cars.size() == 7:
 		print("GARAGE_READY: 7 cars")
 	else:
@@ -109,6 +124,18 @@ func _test() -> void:
 	if active != null or not player.is_physics_processing():
 		get_tree().quit(4)
 		return
+	for car in cars:
+		if car.get("door") == null:
+			get_tree().quit(8)
+			return
+		car.call("set_door", true)
+		for frame in range(18):
+			await get_tree().physics_frame
+		if absf(float(car.get("door_angle"))) < 0.3:
+			get_tree().quit(9)
+			return
+		car.call("set_door", false)
+	print("DOORS_TEST_OK")
 	print("GARAGE_TEST_OK")
 	var gesture := player.get("wall_touch") as Node
 	if gesture == null or gesture.get("ik") == null:
@@ -117,8 +144,9 @@ func _test() -> void:
 		return
 	player.global_position = Vector3(0, 0.04, -12.38)
 	var body := player.get("_body_visual") as Node3D
-	body.rotation.y = 0.0
-	for i in range(36):
+	body.rotation.y = -PI / 2.0
+	gesture.set("heading", Vector3.RIGHT)
+	for i in range(48):
 		await get_tree().physics_frame
 	if not bool(gesture.get("active_contact")) or float(gesture.get("blend")) < 0.75:
 		push_error("Wall contact not detected: " + str(gesture.get("blend")))
@@ -153,6 +181,34 @@ func _create_wall() -> void:
 	mat.roughness = 0.93
 	mesh.material_override = mat
 	wall.add_child(mesh)
+
+func _create_details() -> void:
+	var concrete := StandardMaterial3D.new()
+	concrete.albedo_color = Color(0.30, 0.34, 0.39)
+	concrete.roughness = 0.9
+	var accent := StandardMaterial3D.new()
+	accent.albedo_color = Color(0.82, 0.60, 0.18)
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.07, 0.10, 0.14)
+	for i in range(5):
+		var x := -44.0 + float(i) * 22.0
+		_detail_box(Vector3(x, 2.0, 30.0), Vector3(0.65, 4.0, 0.65), concrete)
+		_detail_box(Vector3(x, 0.6, 30.0), Vector3(0.7, 0.16, 0.7), accent)
+	_detail_box(Vector3(0, 4.0, 30), Vector3(90, 0.35, 0.7), concrete)
+	_detail_box(Vector3(0, 1.2, 33), Vector3(90, 2.4, 0.35), dark)
+	for i in range(6):
+		_detail_box(Vector3(-40.0 + i * 16.0, 0.11, -25.0), Vector3(0.25, 0.22, 4.0), accent)
+	for i in range(4):
+		_detail_box(Vector3(-3.2 + i * 2.15, 2.79, -12.79), Vector3(0.08, 0.08, 0.08), accent)
+
+func _detail_box(pos: Vector3, size: Vector3, mat: Material) -> void:
+	var instance := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	instance.mesh = mesh
+	instance.position = pos
+	instance.material_override = mat
+	add_child(instance)
 
 func _create_world() -> void:
 	world_env = WorldEnvironment.new()
@@ -295,11 +351,71 @@ func _create_ui() -> void:
 	panel_stack.add_child(_label("E  cancelar  •  teste fictício de reflexo", 12, Color(0.58, 0.68, 0.78)))
 	puzzle_panel.hide()
 
+func _create_menu() -> void:
+	menu = Control.new()
+	ui.add_child(menu)
+	menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var veil := ColorRect.new()
+	menu.add_child(veil)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.color = Color(0.018, 0.026, 0.04, 0.87)
+	var center := CenterContainer.new()
+	menu.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(420, 0)
+	panel.add_theme_stylebox_override("panel", _style(Color(0.045, 0.067, 0.095, 0.98), Color(0.22, 0.43, 0.56)))
+	center.add_child(panel)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 12)
+	panel.add_child(stack)
+	stack.add_child(_label("MOTOR / LAB", 40, Color(0.94, 0.97, 1.0)))
+	stack.add_child(_label("DRIVING EXPERIENCE     •     V07", 14, Color(0.35, 0.81, 0.91)))
+	stack.add_child(HSeparator.new())
+	play_button = _menu_button("CARREGANDO VEÍCULOS…")
+	play_button.disabled = true
+	play_button.pressed.connect(func(): _show_menu(false))
+	stack.add_child(play_button)
+	stack.add_child(_label("RESOLUÇÃO DE RENDERIZAÇÃO", 13, Color(0.70, 0.81, 0.88)))
+	quality_select = OptionButton.new()
+	quality_select.add_item("960 × 540  •  Desempenho")
+	quality_select.add_item("1280 × 720  •  HD")
+	quality_select.add_item("1920 × 1080  •  Full HD")
+	quality_select.custom_minimum_size.y = 40
+	quality_select.item_selected.connect(_apply_quality)
+	stack.add_child(quality_select)
+	var full := _menu_button("TELA CHEIA / JANELA")
+	full.pressed.connect(func(): get_window().mode = Window.MODE_WINDOWED if get_window().mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN)
+	stack.add_child(full)
+	var quit := _menu_button("SAIR")
+	quit.pressed.connect(func(): get_tree().quit())
+	stack.add_child(quit)
+	stack.add_child(_label("WASD • E interagir • ESC menu • F11 tela cheia", 12, Color(0.64, 0.73, 0.81)))
+	menu.hide()
+
+func _menu_button(value: String) -> Button:
+	var button := Button.new()
+	button.text = value
+	button.custom_minimum_size.y = 46
+	button.add_theme_font_size_override("font_size", 17)
+	button.add_theme_stylebox_override("normal", _style(Color(0.09, 0.16, 0.22), Color(0.21, 0.35, 0.43)))
+	button.add_theme_stylebox_override("hover", _style(Color(0.13, 0.30, 0.38), Color(0.39, 0.79, 0.90)))
+	return button
+
+func _show_menu(show: bool) -> void:
+	menu_open = show
+	menu.visible = show
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if show else Input.MOUSE_MODE_CAPTURED
+	player.set_physics_process(not show and not loading and active == null)
+	camera.set_process_unhandled_input(not show)
+	if not loading:
+		play_button.text = "CONTINUAR"
+
 func _apply_quality(mode: int) -> void:
 	quality = mode
 	var window := get_window()
-	window.content_scale_size = Vector2i(960, 540) if mode == 1 else Vector2i(640, 360)
-	if mode == 1 and sky_quality == null:
+	window.content_scale_size = Vector2i(1920, 1080) if mode == 2 else (Vector2i(1280, 720) if mode == 1 else Vector2i(960, 540))
+	if mode >= 1 and sky_quality == null:
 		sky_quality = Sky.new()
 		var sky_mat := ProceduralSkyMaterial.new()
 		sky_mat.sky_top_color = Color(0.19, 0.40, 0.69)
@@ -307,19 +423,19 @@ func _apply_quality(mode: int) -> void:
 		sky_quality.sky_material = sky_mat
 		sky_quality.radiance_size = Sky.RADIANCE_SIZE_32
 	var env := world_env.environment
-	env.sky = sky_quality if mode == 1 else null
-	env.background_mode = Environment.BG_SKY if mode == 1 else Environment.BG_COLOR
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if mode == 1 else Environment.AMBIENT_SOURCE_COLOR
-	sun.shadow_enabled = mode == 1
-	camera.far = 100.0 if mode == 1 else 78.0
+	env.sky = sky_quality if mode >= 1 else null
+	env.background_mode = Environment.BG_SKY if mode >= 1 else Environment.BG_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if mode >= 1 else Environment.AMBIENT_SOURCE_COLOR
+	sun.shadow_enabled = mode == 2
+	camera.far = 100.0 if mode >= 1 else 78.0
 
 func _process(delta: float) -> void:
-	if loading:
+	if loading or menu_open:
 		return
 	perf_timer += delta
 	if perf_timer > 0.3:
 		perf_timer = 0.0
-		fps_label.text = "%d FPS   |   F1: %s" % [Engine.get_frames_per_second(), "QUALIDADE" if quality == 1 else "DESEMPENHO"]
+		fps_label.text = "%d FPS   |   F1: %s" % [Engine.get_frames_per_second(), ["540p", "720p", "1080p"][quality]]
 	if active != null:
 		if not locked:
 			player.global_position = active.to_global(active.get("seat"))
@@ -348,15 +464,24 @@ func _process(delta: float) -> void:
 	for car in cars:
 		var visual := car.get("visual") as Node3D
 		if visual != null:
-			visual.visible = car == active or camera.global_position.distance_to(car.global_position) < (50.0 if quality == 1 else 29.0)
+			visual.visible = car == active or camera.global_position.distance_to(car.global_position) < (50.0 if quality >= 1 else 36.0)
 
 func _input(event: InputEvent) -> void:
-	if loading:
-		return
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
+	if event.physical_keycode == KEY_F11 and not testing:
+		get_window().mode = Window.MODE_WINDOWED if get_window().mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
+		get_viewport().set_input_as_handled()
+		return
+	if event.physical_keycode == KEY_ESCAPE and not locked:
+		_show_menu(not menu_open)
+		get_viewport().set_input_as_handled()
+		return
+	if loading or menu_open:
+		return
 	if event.physical_keycode == KEY_F1:
-		_apply_quality(1 - quality)
+		_apply_quality((quality + 1) % 3)
+		quality_select.select(quality)
 	elif event.physical_keycode == KEY_E and not locked:
 		if active != null:
 			if absf(float(active.get("speed"))) < 1.2:
@@ -377,14 +502,22 @@ func _enter(car: CharacterBody3D, immediate: bool = false) -> void:
 	player.global_rotation = car.global_rotation
 	var body := player.get("_body_visual") as Node3D
 	body.rotation.y = PI
-	player.call("_play", "enter")
+	car.call("set_door", true)
 	var destination: Vector3 = car.to_global(car.get("seat"))
 	if not immediate:
+		var approach := car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.45, 0.04, float(car.get("seat").z)))
 		var tween := create_tween()
-		tween.tween_property(player, "global_position", destination, 0.75).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(player, "global_position", approach, 0.35).set_trans(Tween.TRANS_SINE)
 		await tween.finished
+		player.call("_play", "enter")
+		var sit := create_tween().set_parallel(true)
+		sit.tween_property(player, "global_position", destination, 0.85).set_trans(Tween.TRANS_SINE)
+		sit.tween_property(body, "scale", Vector3.ONE * 0.90, 0.85)
+		await sit.finished
 	else:
 		player.global_position = destination
+		body.scale = Vector3.ONE * 0.90
+	car.call("set_door", false)
 	player.call("_play", "drive")
 	camera.set("target", car)
 	camera.set("distance", 6.1)
@@ -407,14 +540,20 @@ func _exit(immediate: bool = false) -> void:
 	puzzle_panel.hide()
 	car.set("occupied", false)
 	car.call("stop_engine")
+	car.call("set_door", true)
 	player.call("_play", "exit")
+	var body := player.get("_body_visual") as Node3D
 	var exit_pos: Vector3 = car.to_global(Vector3(float(car.get("width")) * 0.5 + 0.78, 0.04, 0.0))
 	if not immediate:
 		var tween := create_tween()
-		tween.tween_property(player, "global_position", exit_pos, 0.72).set_trans(Tween.TRANS_SINE)
+		tween.set_parallel(true)
+		tween.tween_property(player, "global_position", exit_pos, 0.85).set_trans(Tween.TRANS_SINE)
+		tween.tween_property(body, "scale", Vector3.ONE, 0.85)
 		await tween.finished
 	else:
 		player.global_position = exit_pos
+	body.scale = Vector3.ONE
+	car.call("set_door", false)
 	active = null
 	player.global_rotation = Vector3.ZERO
 	player.collision_layer = 1

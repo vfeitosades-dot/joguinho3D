@@ -232,7 +232,7 @@ func _ready() -> void:
 	var pivot := Node3D.new()
 	pivot.name = "AjusteModelo"
 	_body_visual.add_child(pivot)
-	pivot.scale = Vector3.ONE * 0.7278
+	pivot.scale = Vector3.ONE * 0.6600
 	pivot.rotation.y = PI
 	pivot.add_child(model)
 	wall_touch = preload("res://scripts/wall_touch.gd").new()
@@ -269,7 +269,8 @@ func _play(state: String) -> void:
 		return
 	_state = state
 	var clip: StringName = _clips[state]
-	_anim.play(clip, 0.18)
+	_anim.speed_scale = 1.0
+	_anim.play(clip, 0.24)
 	if state in ["enter", "drive", "exit"] and wall_touch != null:
 		wall_touch.call("release_now")
 
@@ -295,6 +296,8 @@ func _play(state: String) -> void:
 		_anim.speed_scale = 1.0
 
 '''+tail
+new=new.replace("collider.position.y = 0.97","collider.position.y = 0.86").replace("capsule.height = 1.9","capsule.height = 1.72").replace("capsule.radius = 0.32","capsule.radius = 0.30")
+new=new.replace("get_tree().quit()","pass")
 player.write_text(new)
 preset=project/"export_presets.cfg"
 preset.write_text(preset.read_text().replace('include_filter=""','include_filter="*.glbdata, CREDITS.txt"').replace('script_export_mode=1','script_export_mode=0'))
