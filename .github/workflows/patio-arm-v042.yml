@@ -1,0 +1,94 @@
+name: Pátio 0.4.2 - revisão completa da corrida
+on:
+  push:
+    branches: [patio-arm-fix-v0.4.2]
+    paths:
+      - .github/workflows/patio-arm-v042.yml
+      - patio-fix/**
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar projeto original e Godot
+        run: |
+          set -euo pipefail
+          echo 'fadb9b1320b2a474c7a474fa0d620331dfb3209d' | grep -Fx "$(git hash-object Patio-Godot.zip)"
+          unzip -q Patio-Godot.zip -d build
+          base=https://github.com/godotengine/godot-builds/releases/download/4.7-stable
+          curl -fL --retry 3 "$base/Godot_v4.7-stable_linux.x86_64.zip" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          chmod +x /tmp/godot/Godot_v4.7-stable_linux.x86_64
+          sudo ln -s /tmp/godot/Godot_v4.7-stable_linux.x86_64 /usr/local/bin/godot
+          curl -fL --retry 3 "$base/Godot_v4.7-stable_export_templates.tpz" -o /tmp/templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.stable"
+          unzip -j /tmp/templates.tpz 'templates/windows_release_x86_64.exe' -d "$HOME/.local/share/godot/export_templates/4.7.stable"
+          cp patio-fix/*.gd build/Patio/
+          godot --headless --path build/Patio --editor --import --quit
+      - name: Reconstruir os quadros do Run
+        run: |
+          set -euo pipefail
+          timeout 90 godot --headless --path build/Patio --script res://bake_corrida.gd 2>&1 | tee /tmp/bake.log
+          grep -F BAKE_OK /tmp/bake.log
+          if grep -E 'SCRIPT ERROR|Parse Error' /tmp/bake.log; then exit 1; fi
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build/Patio/scripts/personagem.gd")
+          s = p.read_text()
+          old = '\tduracao_corrida = animador.get_animation("Run").length'
+          new = '\tanimador.get_animation_library("").remove_animation("Run")\n\tanimador.get_animation_library("").add_animation("Run", preload("res://assets/corrida_corrigida.res"))\n' + old
+          assert old in s
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Verificar corrida no jogo
+        run: |
+          set -euo pipefail
+          timeout 90 godot --headless --path build/Patio --script res://teste_corrida.gd 2>&1 | tee /tmp/teste.log
+          grep -F RUNTIME_OK /tmp/teste.log
+          if grep -E 'SCRIPT ERROR|Parse Error' /tmp/teste.log; then exit 1; fi
+      - name: Capturar e conferir poses
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if ! command -v xvfb-run >/dev/null; then sudo apt-get update && sudo apt-get install -y xvfb; fi
+          timeout 90 xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 godot --path build/Patio --script res://render_corrida.gd --resolution 640x480 2>&1 | tee /tmp/render.log
+          grep -F RENDER_OK /tmp/render.log
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw
+          import base64
+          sheet = Image.new("RGB", (880,480), (23,26,29))
+          draw = ImageDraw.Draw(sheet)
+          for v in range(2):
+              for k in range(4):
+                  im=Image.open(f"/tmp/pose_{v}_{k}.png").convert("RGB")
+                  im.thumbnail((220,220))
+                  x=k*220+(220-im.width)//2
+                  y=v*240+20
+                  sheet.paste(im,(x,y))
+                  draw.text((k*220+5,v*240+3),f"{'Frente' if v==0 else 'Lado'} {k*25}%",fill="white")
+          sheet.save("dist/poses-corrida.jpg",quality=78)
+          data=base64.b64encode(open("dist/poses-corrida.jpg","rb").read()).decode()
+          for i in range(0,len(data),4000):
+              print("POSE_JPEG:"+data[i:i+4000])
+          PY
+      - name: Exportar Windows
+        run: |
+          set -euo pipefail
+          rm -f build/Patio/{bake_corrida,teste_corrida,render_corrida}.gd{,.uid}
+          godot --headless --path build/Patio --export-release "Windows Desktop" "$GITHUB_WORKSPACE/dist/Patio.exe"
+          test -s dist/Patio.exe
+          file dist/Patio.exe
+          cd build
+          zip -qr "$GITHUB_WORKSPACE/dist/Patio-Godot.zip" Patio -x 'Patio/.godot/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Patio-Windows-0.4.2
+          path: dist/*
+      - name: Publicar EXE em Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create patio-windows-0.4.2 dist/Patio.exe dist/Patio-Godot.zip dist/poses-corrida.jpg --target "$GITHUB_SHA" --title 'Pátio 0.4.2 para Windows' --notes 'Ciclo de corrida reconstruído nos ossos dos braços, cotovelos, punhos e auxiliares de torção. Validação automática da geometria e imagens das poses.'
